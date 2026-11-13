@@ -4,7 +4,7 @@ slug: queuelens
 owner: shellghostt
 status: mvp
 version: 0.1.0
-language: Go 1.23 (backend) + TypeScript (dashboard)
+language: Go 1.26 (backend) + TypeScript (dashboard)
 license: Apache-2.0
 rank: 4
 focus: Distributed systems
@@ -424,8 +424,9 @@ method and what the run does not prove are in
 [docs/benchmarks/m1-ingest-5000eps.md](docs/benchmarks/m1-ingest-5000eps.md). The BullMQ counts are
 checked against a real BullMQ 6.7.6 queue seeded by the committed fixture in
 `tests/integration/bullmq`, not against a hand-written Redis fixture. The integration suite passes
-locally against PostgreSQL 16.16 and Redis 7.2.17; the CI workflow defines the same environment but
-has never executed, because the repository has no remote yet.
+locally against PostgreSQL 16.16 and Redis 7.2.17, and the CI workflow defines the same environment:
+the first run on GitHub on 2026-11-13 passed against PostgreSQL 16 and Redis 7.2 with the real BullMQ
+fixture.
 
 The remaining M1 gaps are the ones the plan itself leaves open: the SDK is M2, and the `job_runs`,
 `workers`, `metrics_hourly`, `alert_rules` and `alerts_fired` tables arrive with M3 and M5. M1
@@ -435,8 +436,9 @@ M3 work.
 The race detector could not be run on the machine that produced this release: the only C compiler
 there is MinGW GCC 6.3.0, which cannot build a 64-bit race-enabled binary
 (`cc1.exe: sorry, unimplemented: 64-bit mode not compiled in`). The unit and integration suites
-pass without the race detector, and CI runs `go test -race` on ubuntu-latest, but that workflow has
-never executed because the repository has no remote yet.
+pass without the race detector, and CI runs `go test -race` on all three operating systems. The first
+CI run on GitHub on 2026-11-13 executed it, and it passed on ubuntu-latest, windows-latest and
+macos-latest.
 
 ### M2 — Instrumentation SDK
 

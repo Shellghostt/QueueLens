@@ -4,7 +4,7 @@
 
 ![status](https://img.shields.io/badge/status-M1_collection-orange)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-![Go](https://img.shields.io/badge/go-1.23-00ADD8?logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
 
 **Status: M1 (v0.1.0).** QueueLens reads queue state from a broker, accepts job lifecycle events
 over HTTP and stores them in PostgreSQL. **It does not analyse anything yet**: there is no lifecycle
@@ -57,7 +57,7 @@ application being monitored. Instrumentation that blocks a job is worse than no 
 
 ## Quickstart
 
-Requires Go 1.23+, PostgreSQL 16 and Redis 7.2.
+Requires Go 1.26+, PostgreSQL 16 and Redis 7.2.
 
 ```bash
 make build

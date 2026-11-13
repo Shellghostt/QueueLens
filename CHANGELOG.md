@@ -7,11 +7,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Security
+
+- The dependency scan was reporting 50 vulnerabilities that affect this code. The Go standard
+  library advisories have no fix in the 1.23 line, and `golang.org/x/text` v0.22.0, chi v5.2.1 and
+  pgx v5.7.4 were affected as well. The scan is now clean.
+
+### Changed
+
+- The repository is published at https://github.com/Shellghostt/QueueLens and the CI workflow has
+  executed. The first run on 2026-11-13 passed the build, test and integration jobs on all three
+  operating systems, including `go test -race`; the lint and vulnerability jobs failed on that run
+  and are fixed by the entries above.
+- The Go floor moves from 1.23 to 1.26. `go.mod` declares `go 1.26.0` and `toolchain go1.26.11`, so
+  CI installs the patched toolchain and not the exact patch named by the `go` directive. ADR 0003
+  supersedes decision 18 of ADR 0002.
+- `github.com/go-chi/chi/v5` v5.2.1 → v5.5.0, `github.com/jackc/pgx/v5` v5.7.4 → v5.13.0,
+  `golang.org/x/text` v0.22.0 → v0.42.0 and `golang.org/x/sync` v0.11.0 → v0.23.0.
+- The builder image moves to `golang:1.26-alpine`.
+- The linter is golangci-lint v2.15.0, pinned by version, run by `golangci/golangci-lint-action@v9`.
+  The five findings it produced were fixed in the code rather than excluded.
+
 ### Fixed
 
 - The collector test that waits for the writer to flush now waits for the persisted counter rather
   than for the sink. The writer records a batch in the sink and bumps the counter afterwards, so the
   old test could read the counter before the last batch was accounted for and fail intermittently.
+- Five writes and closes whose error return was discarded now say so explicitly with `_, _ =`.
 
 ### Planned
 
