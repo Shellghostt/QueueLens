@@ -40,6 +40,33 @@ Without the servers the integration tests skip themselves and say which environm
 missing. A skipped test is not a passing test: if you changed the adapter or the storage, make the
 suite actually run.
 
+## Code navigation
+
+[CodeGraph](https://github.com/colbymchenry/codegraph) builds a local symbol index of this
+repository. It is optional: neither the build nor CI depends on it.
+
+```bash
+codegraph init --yes .   # build the index once
+codegraph status          # whether the index is current
+codegraph sync            # refresh it after a change
+```
+
+The index lives in `.codegraph/`. Git ignores its database and temporary files; the
+`.codegraph/.gitignore` that enforces that is tracked.
+
+## JavaScript static analysis
+
+The BullMQ fixture is the only JavaScript in this repository. It is checked with
+[MemGuard](https://www.npmjs.com/package/memguard), a static analyser for memory and resource
+problems, pinned as a development dependency of the fixture:
+
+```bash
+make memory-check
+```
+
+MemGuard reads source. It does not observe runtime behaviour, and a clean run is not evidence that
+the fixture is free of memory problems.
+
 ## Commit messages
 
 Conventional Commits, imperative mood, no trailing period:

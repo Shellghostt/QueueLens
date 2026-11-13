@@ -7,6 +7,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- The BullMQ fixture is checked with MemGuard, a static analyser for JavaScript memory and resource
+  problems, pinned as a development dependency. `make memory-check` runs it locally and CI runs it
+  on every pull request. It reads source; it does not observe runtime behaviour, and a clean run is
+  not evidence that the fixture is free of memory problems.
+- The repository tracks CodeGraph's index ignore rules and documents it as an optional local tool
+  for code navigation. Nothing in the build or in CI depends on it.
+
 ### Security
 
 - The dependency scan was reporting 50 vulnerabilities that affect this code. The Go standard
