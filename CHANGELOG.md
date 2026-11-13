@@ -81,7 +81,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The collector creates the partition for the current month and the next one at startup. Keeping two
   months ahead automatically is M3 work.
 - A failed batch write loses the events in that batch. There is no disk queue; that is M3 work.
-- The CI workflow has never executed: the repository has no remote yet.
+- The CI workflow had not executed when this tag was created: the repository had no remote yet. It has
+  since run on GitHub; see [Unreleased].
 - The race detector could not be run locally: the only C compiler on that machine is MinGW GCC
   6.3.0, which cannot build a 64-bit race-enabled binary. CI runs `go test -race` on ubuntu-latest.
 - The benchmark is a single-host measurement with the database on the same machine. It is not a
