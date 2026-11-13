@@ -194,17 +194,21 @@ func TestTheWriterFlushesBufferedEvents(t *testing.T) {
 
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if sink.count() == 25 {
+		// Wait for the counter, not for the sink. The writer records the
+		// batch in the sink first and bumps the counter afterwards, so a
+		// test that waited on the sink could read the counter before the
+		// last batch was accounted for.
+		if metricSet.EventsPersisted.Load() == 25 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if sink.count() != 25 {
-		t.Fatalf("expected 25 persisted events, got %d", sink.count())
-	}
 	if got := metricSet.EventsPersisted.Load(); got != 25 {
 		t.Fatalf("expected the persisted counter to be 25, got %d", got)
+	}
+	if sink.count() != 25 {
+		t.Fatalf("expected 25 persisted events, got %d", sink.count())
 	}
 }
 

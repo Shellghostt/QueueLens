@@ -7,6 +7,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- The collector test that waits for the writer to flush now waits for the persisted counter rather
+  than for the sink. The writer records a batch in the sink and bumps the counter afterwards, so the
+  old test could read the counter before the last batch was accounted for and fail intermittently.
+
 ### Planned
 
 - M2: the Go and TypeScript instrumentation SDKs, the worker heartbeat and the shared protocol
