@@ -1,10 +1,12 @@
 module github.com/shellghostt/queuelens
 
-go 1.23.0
+go 1.26.0
+
+toolchain go1.26.11
 
 require (
-	github.com/go-chi/chi/v5 v5.2.1
-	github.com/jackc/pgx/v5 v5.7.4
+	github.com/go-chi/chi/v5 v5.5.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/redis/go-redis/v9 v9.7.3
 )
 
@@ -15,7 +17,6 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
-	golang.org/x/crypto v0.32.0 // indirect
-	golang.org/x/sync v0.11.0 // indirect
-	golang.org/x/text v0.22.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 )
