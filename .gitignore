@@ -17,7 +17,6 @@ tests/integration/bullmq/package-lock.json
 
 # Tooling
 .golangci-lint-cache/
-.codegraph/
 
 # Environment
 .env
