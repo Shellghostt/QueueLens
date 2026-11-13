@@ -7,7 +7,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 POSTGRES_DSN ?= postgresql://queuelens:queuelens@127.0.0.1:55433/queuelens
 REDIS_URL ?= redis://127.0.0.1:56379/0
 
-.PHONY: bootstrap build test race integration bench loadtest lint fmt vet run docker db-up db-down fixture clean
+.PHONY: bootstrap build test race integration bench loadtest lint fmt vet memory-check run docker db-up db-down fixture clean
 
 bootstrap:
 	go mod download
@@ -30,6 +30,12 @@ integration:
 
 fixture:
 	cd tests/integration/bullmq && npm install
+
+# MemGuard is a static analyser for JavaScript memory and resource problems.
+# It is pinned as a development dependency of the BullMQ fixture and runs in
+# CI. It reads source; it does not observe runtime behaviour.
+memory-check:
+	cd tests/integration/bullmq && npm run memory:check
 
 bench:
 	QUEUELENS_TEST_DATABASE_URL=$(POSTGRES_DSN) go test ./internal/store -bench WriteBatch1000 -benchtime 20x -run XXX

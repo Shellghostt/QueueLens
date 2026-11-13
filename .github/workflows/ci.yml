@@ -89,6 +89,10 @@ jobs:
         working-directory: tests/integration/bullmq
         run: npm install
 
+      - name: MemGuard static check (JavaScript fixture)
+        working-directory: tests/integration/bullmq
+        run: npm run memory:check
+
       - name: Integration tests
         env:
           QUEUELENS_TEST_DATABASE_URL: postgresql://queuelens:queuelens@localhost:5432/queuelens

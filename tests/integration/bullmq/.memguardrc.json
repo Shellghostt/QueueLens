@@ -1,0 +1,10 @@
+{
+  "rules": {
+    "MEM001": "info",
+    "MEM002": "info",
+    "MEM003": "warning",
+    "MEM004": "warning",
+    "MEM005": "warning"
+  },
+  "ignore": []
+}
