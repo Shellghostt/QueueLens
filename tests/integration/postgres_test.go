@@ -118,7 +118,7 @@ func TestTheTableIsPartitionedByTime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect for inspection: %v", err)
 	}
-	defer connection.Close(ctx)
+	defer func() { _ = connection.Close(ctx) }()
 
 	var strategy string
 	err = connection.QueryRow(ctx, `
@@ -162,7 +162,7 @@ func TestTheStorageRejectsAnUnknownState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect for inspection: %v", err)
 	}
-	defer connection.Close(ctx)
+	defer func() { _ = connection.Close(ctx) }()
 
 	// The table has a CHECK constraint on the state. The collector validates
 	// first, so this only proves the database does not accept nonsense either.

@@ -127,7 +127,7 @@ func TestTheBullMQAdapterMatchesWhatBullMQReports(t *testing.T) {
 	expected := seedBullMQ(t, address)
 
 	client := redis.NewClient(redisOptions(t, address))
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -177,7 +177,7 @@ func TestTheAdapterFailsCleanlyWhenRedisIsUnreachable(t *testing.T) {
 		DialTimeout: 500 * time.Millisecond,
 		MaxRetries:  -1,
 	})
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
