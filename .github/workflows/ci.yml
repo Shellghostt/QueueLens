@@ -83,7 +83,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # MemGuard requires Node 22 or newer. The fixture's own runtime
+          # dependencies work on Node 20, but the static check does not.
+          node-version: "22"
 
       - name: Install the BullMQ fixture
         working-directory: tests/integration/bullmq

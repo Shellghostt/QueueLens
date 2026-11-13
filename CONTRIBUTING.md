@@ -28,7 +28,7 @@ make lint        # formatting and static analysis
 ```
 
 The integration suite needs real infrastructure. The BullMQ test compares the adapter's counts
-against what BullMQ itself reports, so it needs Node and the fixture's dependencies:
+against what BullMQ itself reports, so it needs Node 22 or newer and the fixture's dependencies:
 
 ```bash
 make db-up       # postgres on 55433, redis on 56379
@@ -63,6 +63,8 @@ problems, pinned as a development dependency of the fixture:
 ```bash
 make memory-check
 ```
+
+MemGuard requires Node 22 or newer, so the fixture's `package.json` says so and CI uses Node 22.
 
 MemGuard reads source. It does not observe runtime behaviour, and a clean run is not evidence that
 the fixture is free of memory problems.

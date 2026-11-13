@@ -13,6 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   problems, pinned as a development dependency. `make memory-check` runs it locally and CI runs it
   on every pull request. It reads source; it does not observe runtime behaviour, and a clean run is
   not evidence that the fixture is free of memory problems.
+- The fixture requires Node 22 or newer, because MemGuard does. Its `package.json` says so and CI
+  uses Node 22.
 - The repository tracks CodeGraph's index ignore rules and documents it as an optional local tool
   for code navigation. Nothing in the build or in CI depends on it.
 

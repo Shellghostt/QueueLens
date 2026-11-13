@@ -5,6 +5,9 @@
   "description": "Seeds a real BullMQ 6.x queue so the QueueLens adapter can be tested against the real key layout.",
   "license": "Apache-2.0",
   "main": "seed.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "seed": "node seed.js",
     "memory:check": "memguard run ."
