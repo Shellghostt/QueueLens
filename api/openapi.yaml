@@ -1,16 +1,277 @@
 openapi: 3.1.0
 info:
   title: QueueLens API
-  version: 0.0.0
+  version: 0.1.0
   description: |
-    Status: skeleton. Only the paths that are implemented may appear here.
+    Status: M1. Only the paths that are implemented may appear here.
     Adding a path before implementing it is treated as a documentation bug.
+
+    The collector and the query API share one bearer token. Every path that
+    needs it returns 401 without a valid `Authorization: Bearer <token>`
+    header.
+
+    The ingest endpoint takes either a single event object or an array of
+    events. The response reports what happened to each event: `accepted` and
+    `dropped` are counts, `rejected` holds one entry per rejected event with
+    the reason it was rejected.
 servers:
   - url: http://localhost:8080
     description: Local development
-paths: {}
+security:
+  - bearerAuth: []
+paths:
+  /v1/events:
+    post:
+      summary: Ingest a batch of queue events
+      description: |
+        Accepts at most 1,000 events or 1 MiB per request. An event that
+        fails validation is rejected on its own with a reason; the other
+        events in the batch are still accepted.
+
+        When the collector's buffer is full the events that do not fit are
+        dropped and counted, and the response is 429 with `Retry-After: 1`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/Event'
+                - type: array
+                  minItems: 1
+                  maxItems: 1000
+                  items:
+                    $ref: '#/components/schemas/Event'
+            examples:
+              oneEvent:
+                value:
+                  v: 1
+                  ts: "2026-11-13T10:00:00.123Z"
+                  queue: emails
+                  job_id: "8891"
+                  job_name: send-welcome
+                  attempt: 2
+                  state: failed
+                  worker_id: w-7
+                  duration_ms: 340
+                  error: SMTP timeout
+              batch:
+                value:
+                  - v: 1
+                    ts: "2026-11-13T10:00:00.123Z"
+                    queue: emails
+                    job_id: "8891"
+                    state: enqueued
+      responses:
+        '202':
+          description: The events were accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestResponse'
+        '400':
+          description: The body could not be read, or every event was rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestResponse'
+        '401':
+          description: Missing or invalid bearer token
+        '429':
+          description: The collector's buffer was full; some events were dropped
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds to wait before retrying
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestResponse'
+  /v1/queues:
+    get:
+      summary: List the queues the adapters know about
+      description: |
+        The state is the result of the last successful poll. When an adapter
+        fails, the last known state is kept and every queue is marked
+        `stale` with the error that was seen.
+      responses:
+        '200':
+          description: The current queue state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueuesResponse'
+        '401':
+          description: Missing or invalid bearer token
+  /healthz:
+    get:
+      summary: Liveness check
+      security: []
+      responses:
+        '200':
+          description: The process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  version:
+                    type: string
+  /readyz:
+    get:
+      summary: Readiness check
+      security: []
+      description: |
+        Returns 503 when the database cannot be reached. The broker is not
+        part of this check: a broken broker must not take the collector out
+        of rotation.
+      responses:
+        '200':
+          description: The collector can serve traffic
+        '503':
+          description: The database is not reachable
+  /metrics:
+    get:
+      summary: Collector counters in the Prometheus text format
+      security: []
+      description: |
+        M1 exposes the collector's own counters only. The Go runtime and
+        process metrics arrive with the full exporter in M5.
+      responses:
+        '200':
+          description: The counters
+          content:
+            text/plain:
+              schema:
+                type: string
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
+  schemas:
+    Event:
+      type: object
+      required: [v, ts, queue, job_id, state]
+      properties:
+        v:
+          type: integer
+          const: 1
+          description: The protocol version. Only 1 is accepted.
+        id:
+          type: string
+          description: The event identifier. Generated by the collector when it is omitted.
+        ts:
+          type: string
+          format: date-time
+          description: |
+            When the event happened. Events older than 7 days are rejected and
+            counted separately; events more than 1 hour in the future are
+            rejected as clock skew.
+        queue:
+          type: string
+          maxLength: 256
+        job_id:
+          type: string
+          maxLength: 256
+        job_name:
+          type: string
+          maxLength: 256
+        attempt:
+          type: integer
+          minimum: 1
+          default: 1
+        state:
+          type: string
+          enum: [enqueued, started, completed, failed, retried, stalled, drained]
+        worker_id:
+          type: string
+          maxLength: 128
+        duration_ms:
+          type: integer
+          minimum: 0
+        error:
+          type: string
+          maxLength: 1024
+          description: |
+            The failure message. The collector truncates it and redacts
+            common credential shapes on a best-effort basis.
+      additionalProperties: true
+      description: Unknown fields are ignored, so a newer adapter does not break an older collector.
+    Rejection:
+      type: object
+      required: [index, reason]
+      properties:
+        index:
+          type: integer
+          description: The position of the event in the submitted batch
+        id:
+          type: string
+        reason:
+          type: string
+    IngestResponse:
+      type: object
+      required: [accepted, dropped, rejected]
+      properties:
+        accepted:
+          type: integer
+          description: How many events were accepted into the buffer
+        dropped:
+          type: integer
+          description: How many events were dropped because the buffer was full
+        rejected:
+          type: array
+          description: One entry per rejected event
+          items:
+            $ref: '#/components/schemas/Rejection'
+    Queue:
+      type: object
+      required: [queue, waiting, active, completed, failed, delayed, paused, prioritized, depth, updated_at, stale]
+      properties:
+        queue:
+          type: string
+        waiting:
+          type: integer
+        active:
+          type: integer
+        completed:
+          type: integer
+        failed:
+          type: integer
+        delayed:
+          type: integer
+        paused:
+          type: integer
+        prioritized:
+          type: integer
+        depth:
+          type: integer
+          description: waiting + delayed + paused + prioritized
+        updated_at:
+          type: string
+          format: date-time
+        stale:
+          type: boolean
+          description: True when the last poll of this adapter failed
+        error:
+          type: string
+          description: The error of the failed poll, when there was one
+    QueuesResponse:
+      type: object
+      required: [generated_at, queues]
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        queues:
+          type: array
+          items:
+            $ref: '#/components/schemas/Queue'
+        adapter_errors:
+          type: object
+          additionalProperties:
+            type: string
+          description: The last error of every adapter that failed

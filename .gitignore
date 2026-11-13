@@ -11,6 +11,10 @@
 coverage.*
 tests/load/results/
 
+# Node dependencies of the BullMQ integration fixture
+tests/integration/bullmq/node_modules/
+tests/integration/bullmq/package-lock.json
+
 # Tooling
 .golangci-lint-cache/
 

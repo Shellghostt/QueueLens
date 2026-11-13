@@ -2,8 +2,8 @@
 project: QueueLens
 slug: queuelens
 owner: shellghostt
-status: skeleton
-version: 0.0.0
+status: mvp
+version: 0.1.0
 language: Go 1.23 (backend) + TypeScript (dashboard)
 license: Apache-2.0
 rank: 4
@@ -26,33 +26,43 @@ updated: 2026-11-13
 
 ```yaml
 project: QueueLens
-status: skeleton
-version: 0.0.0
+status: mvp
+version: 0.1.0
 builds: true
-functional: false
+functional: partial            # collection and ingest work; nothing analyses or visualises yet
 
 implemented:
   - repository skeleton
-  - server binary that prints its version
-  - protocol documentation placeholder
+  - protocol v1 in pkg/protocol: event schema, validation, redaction, sortable ids
+  - adapter interface (internal/adapter)
+  - bullmq adapter reading redis directly, verified against bullmq 6.7.6
+  - collector ingest api: POST /v1/events with per-event rejection reasons
+  - bounded buffer with a 429 saturation path and a drop counter
+  - postgres storage: range-partitioned queue_events table, migrations, COPY writer
+  - query api: GET /v1/queues
+  - operational endpoints: /healthz, /readyz, /metrics
+  - load generator (queuelens loadgen) and a committed benchmark report
+  - unit tests and integration tests against a real postgres and a real redis
 
 not_implemented:
-  - adapter interface
-  - redis / bullmq adapter
-  - collector ingest api
-  - postgres storage
-  - worker instrumentation sdk
-  - job lifecycle tracking
+  - worker instrumentation sdk (go and typescript)
+  - worker heartbeat
+  - job lifecycle reconstruction
+  - job_runs, workers, metrics_hourly, alert_rules, alerts_fired tables
+  - partition maintenance and retention
+  - analytics and rollups
   - dashboard
-  - analytics
   - alerting
-  - additional adapters
+  - additional adapters (sqs, celery, sidekiq)
+  - full prometheus exporter
 
 source_of_truth:
   scope_and_schema: docs/PLAN.md        # this file, section 9 for the event schema
   architecture: docs/ARCHITECTURE.md
   decisions: docs/adr/
   protocol: pkg/protocol/
+  api: api/openapi.yaml
+  benchmark: docs/benchmarks/
   status: README.md#roadmap
 
 forbidden_claims:
@@ -288,6 +298,14 @@ no separate ingest key.
 Ingest response: `202 {"accepted": 1000, "dropped": 0}`. On saturation: `429` with `Retry-After: 1`.
 The SDK treats both as non-fatal and never retries synchronously.
 
+Implemented in M1: `POST /v1/events`, `GET /v1/queues`, `GET /healthz`, `GET /readyz` and
+`GET /metrics`. Every other path in the tables above is planned for M3 to M5 and does not exist yet;
+`api/openapi.yaml` lists only the paths that are registered in the code.
+
+One addition to the response shape: `rejected` holds one entry per rejected event
+(`{"index": 1, "id": "...", "reason": "job_id: is required"}`), so a producer can tell which event to
+fix. The counts `accepted` and `dropped` are unchanged.
+
 ---
 
 ## 9. Core contract: protocol and overhead
@@ -326,6 +344,12 @@ Unknown fields are ignored; `v` must be `1`. Missing `queue` or `job_id` rejects
 The SDK's `Emit` is a non-blocking send to a buffered channel (capacity 10,000). On a full buffer it increments
 `queuelens_dropped_total` and returns. **It never blocks and never allocates on the hot path beyond the event
 struct.**
+
+M1 status of this budget: the SDK rows do not apply yet, because the SDK is M2. The collector row is
+measured: a 1,000-event batch takes 3.18 ms at p50 and 5.41 ms at p99 end to end over HTTP on
+loopback, and the storage write of 1,000 rows takes 7.51 ms against a local PostgreSQL 16 server. The
+budget is 50 ms. The measurements, the hardware and the method are in
+[docs/benchmarks/m1-ingest-5000eps.md](docs/benchmarks/m1-ingest-5000eps.md).
 
 ### Lifecycle reconstruction
 
@@ -366,6 +390,16 @@ Thresholds are configurable but the defaults are documented and tested.
 | `QUELENS_RETENTION_ROLLUP_DAYS` | `400` | hourly rollups |
 | `QUELENS_LOG_LEVEL` | `info` | |
 
+M1 implementation notes: `QUEUELENS_*` is the canonical prefix and the `QUELENS_*` spelling above is
+accepted as an alias, because a tool that ignores its own specification is a bug. The canonical name
+wins when both are set. Two variables the plan does not list are implemented as well:
+`QUEUELENS_BATCH_SIZE` is the events per database round trip (default 500, maximum 1,000) and
+`QUEUELENS_FLUSH_INTERVAL` is the maximum time an event waits in the buffer (default 250 ms).
+
+`QUELENS_RETENTION_RAW_DAYS` and `QUELENS_RETENTION_ROLLUP_DAYS` are **not implemented**: retention is
+M3 work, and there are no rollup tables yet. The collector does not read those variables today, and
+nothing in this release claims that data is deleted.
+
 ---
 
 ## 11. Milestones
@@ -377,11 +411,32 @@ generator.
 
 **Acceptance criteria**
 
-- [ ] BullMQ queues, waiting/active/completed/failed counts visible via `GET /v1/queues`
-- [ ] Collector accepts 1,000-event batches and rejects malformed events with a per-event reason
-- [ ] Buffer saturation returns `429` and increments a counter; no event is silently lost without a counter
-- [ ] Load generator sustains 5,000 events/s ingest for 5 minutes on 4 vCPU
-- [ ] Adapter failure is isolated: a broken Redis connection does not crash the collector
+- [x] BullMQ queues, waiting/active/completed/failed counts visible via `GET /v1/queues`
+- [x] Collector accepts 1,000-event batches and rejects malformed events with a per-event reason
+- [x] Buffer saturation returns `429` and increments a counter; no event is silently lost without a counter
+- [x] Load generator sustains 5,000 events/s ingest for 5 minutes on 4 vCPU
+- [x] Adapter failure is isolated: a broken Redis connection does not crash the collector
+
+Status note: the five-minute run was measured on 2026-11-13 with the collector pinned to four logical
+processors of an AMD Ryzen 5 5600H: 1,500,000 events accepted at 4,999.99 events/s, p50 request
+latency 1.17 ms, p99 2.50 ms, zero drops, zero rejected events, zero failed writes. The hardware, the
+method and what the run does not prove are in
+[docs/benchmarks/m1-ingest-5000eps.md](docs/benchmarks/m1-ingest-5000eps.md). The BullMQ counts are
+checked against a real BullMQ 6.7.6 queue seeded by the committed fixture in
+`tests/integration/bullmq`, not against a hand-written Redis fixture. The integration suite passes
+locally against PostgreSQL 16.16 and Redis 7.2.17; the CI workflow defines the same environment but
+has never executed, because the repository has no remote yet.
+
+The remaining M1 gaps are the ones the plan itself leaves open: the SDK is M2, and the `job_runs`,
+`workers`, `metrics_hourly`, `alert_rules` and `alerts_fired` tables arrive with M3 and M5. M1
+creates the partition for the current month and the next one at startup; keeping two months ahead is
+M3 work.
+
+The race detector could not be run on the machine that produced this release: the only C compiler
+there is MinGW GCC 6.3.0, which cannot build a 64-bit race-enabled binary
+(`cc1.exe: sorry, unimplemented: 64-bit mode not compiled in`). The unit and integration suites
+pass without the race detector, and CI runs `go test -race` on ubuntu-latest, but that workflow has
+never executed because the repository has no remote yet.
 
 ### M2 — Instrumentation SDK
 
@@ -448,38 +503,38 @@ generator.
 
 ## 12. Backlog
 
-| ID | Task | Depends | Milestone |
-|---|---|---|---|
-| QL-001 | Server skeleton, config, logging, health | — | M1 |
-| QL-002 | Protocol v1 types and validation | — | M1 |
-| QL-003 | Adapter interface and registry | QL-002 | M1 |
-| QL-004 | BullMQ adapter: queue discovery | QL-003 | M1 |
-| QL-005 | BullMQ adapter: counts by state | QL-004 | M1 |
-| QL-006 | Collector ingest endpoint with batching | QL-002 | M1 |
-| QL-007 | Bounded buffer and drop counter | QL-006 | M1 |
-| QL-008 | Batch writer to partitioned table | QL-007 | M1 |
-| QL-009 | Load generator | QL-006 | M1 |
-| QL-010 | Go SDK emit API | QL-002 | M2 |
-| QL-011 | TS SDK emit API | QL-002 | M2 |
-| QL-012 | Non-blocking buffer test (dead collector) | QL-010 | M2 |
-| QL-013 | Overhead benchmark and report | QL-012 | M2 |
-| QL-014 | Worker heartbeat endpoint and table | QL-001 | M2 |
-| QL-015 | Lifecycle folder (events → job_runs) | QL-008 | M3 |
-| QL-016 | Out-of-order property test | QL-015 | M3 |
-| QL-017 | Stall and dead-worker detection | QL-015 | M3 |
-| QL-018 | Retention and partition maintenance | QL-008 | M3 |
-| QL-019 | Query API: queues and jobs | QL-015 | M4 |
-| QL-020 | Dashboard scaffolding | QL-019 | M4 |
-| QL-021 | Overview and queue detail views | QL-020 | M4 |
-| QL-022 | Job timeline view | QL-021 | M4 |
-| QL-023 | Hourly rollups and percentiles | QL-015 | M5 |
-| QL-024 | Alert rule evaluation and dedup | QL-023 | M5 |
-| QL-025 | Alert notification channel | QL-024 | M5 |
-| QL-026 | Prometheus `/metrics` | QL-023 | M5 |
-| QL-027 | Multi-instance collector coordination | QL-008 | M6 |
-| QL-028 | Asynq adapter + conformance suite | QL-003 | M6 |
-| QL-029 | Capacity test and documentation | QL-027 | M6 |
-| QL-030 | v1.0.0 release checklist | QL-025 | M6 |
+| ID | Task | Depends | Milestone | Status |
+|---|---|---|---|---|
+| QL-001 | Server skeleton, config, logging, health | — | M1 | Done |
+| QL-002 | Protocol v1 types and validation | — | M1 | Done |
+| QL-003 | Adapter interface and registry | QL-002 | M1 | Done (interface; no registry yet) |
+| QL-004 | BullMQ adapter: queue discovery | QL-003 | M1 | Done |
+| QL-005 | BullMQ adapter: counts by state | QL-004 | M1 | Done |
+| QL-006 | Collector ingest endpoint with batching | QL-002 | M1 | Done |
+| QL-007 | Bounded buffer and drop counter | QL-006 | M1 | Done |
+| QL-008 | Batch writer to partitioned table | QL-007 | M1 | Done |
+| QL-009 | Load generator | QL-006 | M1 | Done |
+| QL-010 | Go SDK emit API | QL-002 | M2 | Not started |
+| QL-011 | TS SDK emit API | QL-002 | M2 | Not started |
+| QL-012 | Non-blocking buffer test (dead collector) | QL-010 | M2 | Not started |
+| QL-013 | Overhead benchmark and report | QL-012 | M2 | Not started |
+| QL-014 | Worker heartbeat endpoint and table | QL-001 | M2 | Not started |
+| QL-015 | Lifecycle folder (events → job_runs) | QL-008 | M3 | Not started |
+| QL-016 | Out-of-order property test | QL-015 | M3 | Not started |
+| QL-017 | Stall and dead-worker detection | QL-015 | M3 | Not started |
+| QL-018 | Retention and partition maintenance | QL-008 | M3 | Not started |
+| QL-019 | Query API: queues and jobs | QL-015 | M4 | Partly done: `GET /v1/queues` exists |
+| QL-020 | Dashboard scaffolding | QL-019 | M4 | Not started |
+| QL-021 | Overview and queue detail views | QL-020 | M4 | Not started |
+| QL-022 | Job timeline view | QL-021 | M4 | Not started |
+| QL-023 | Hourly rollups and percentiles | QL-015 | M5 | Not started |
+| QL-024 | Alert rule evaluation and dedup | QL-023 | M5 | Not started |
+| QL-025 | Alert notification channel | QL-024 | M5 | Not started |
+| QL-026 | Prometheus `/metrics` | QL-023 | M5 | Partly done: the collector counters exist, the queue metrics do not |
+| QL-027 | Multi-instance collector coordination | QL-008 | M6 | Not started |
+| QL-028 | Asynq adapter + conformance suite | QL-003 | M6 | Not started |
+| QL-029 | Capacity test and documentation | QL-027 | M6 | Not started |
+| QL-030 | v1.0.0 release checklist | QL-025 | M6 | Not started |
 
 ---
 
@@ -526,8 +581,10 @@ generator.
 
 ## 16. Anti-hallucination contract
 
-**Facts:** the server starts, prints its version and exits. There is no adapter, no collector, no database and
-no dashboard.
+**Facts:** the server starts, applies its migrations, serves the HTTP API and stores the events it
+accepts in a partitioned PostgreSQL table. The BullMQ adapter reads real queue counts from Redis. The
+load generator can drive the collector and report what happened. There is no SDK, no lifecycle
+folding, no dashboard, no alert rule and no second adapter.
 
 **Rules:**
 
@@ -537,6 +594,8 @@ no dashboard.
 4. Drop counters are mandatory: losing events silently is a bug, losing them with a counter is a documented
    trade-off.
 5. Update the adapter table, README roadmap and CHANGELOG in the same pull request.
+6. The OpenAPI document lists only the paths that are registered in the code. A path in the document
+   that the server does not serve is a documentation bug.
 
 **Glossary:**
 
@@ -553,8 +612,13 @@ no dashboard.
 
 ## 17. Handoff protocol
 
-1. Read sections 0, 3 and 9.
+1. Read sections 0, 3 and 9, then section 16.
 2. `make build && ./bin/queuelens version`.
-3. Start at QL-002: the protocol is the contract everything else depends on.
-4. Run the overhead benchmark before and after any change to the emit path.
+3. M1 is done and tagged. The next milestone is **M2, the instrumentation SDK**: start at QL-010 (the
+   Go SDK), then QL-011 (the TypeScript SDK), then QL-012 and QL-013. The shared protocol conformance
+   test belongs to M2 and is the first thing to write, because it is what keeps the two SDKs honest.
+4. Run the overhead benchmark before and after any change to the emit path:
+   `make bench` for the storage path, `make loadtest` for the five-minute ingest run.
 5. Never add an adapter without the conformance suite.
+6. The collector's environment prefix is `QUEUELENS_*`; `QUELENS_*` is an alias, not a rename. Do not
+   remove the alias without an ADR.

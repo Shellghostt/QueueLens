@@ -27,6 +27,19 @@ make test        # unit tests
 make lint        # formatting and static analysis
 ```
 
+The integration suite needs real infrastructure. The BullMQ test compares the adapter's counts
+against what BullMQ itself reports, so it needs Node and the fixture's dependencies:
+
+```bash
+make db-up       # postgres on 55433, redis on 56379
+make fixture     # npm install in tests/integration/bullmq
+make integration
+```
+
+Without the servers the integration tests skip themselves and say which environment variable is
+missing. A skipped test is not a passing test: if you changed the adapter or the storage, make the
+suite actually run.
+
 ## Commit messages
 
 Conventional Commits, imperative mood, no trailing period:
@@ -55,7 +68,9 @@ A change is done when:
 - it is implemented, not stubbed;
 - it is covered by a test that fails without it;
 - `docs/PLAN.md` status fields and `README.md` roadmap reflect the new reality;
-- any user-visible behaviour is documented where a user would look for it.
+- any user-visible behaviour is documented where a user would look for it;
+- `api/openapi.yaml` lists the paths that exist, and only those;
+- a performance claim comes with a committed report under `docs/benchmarks/`.
 
 ## Good first issues
 

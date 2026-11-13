@@ -35,7 +35,10 @@ services:
       redis:
         condition: service_healthy
     environment:
-      QUELENS_POSTGRES_DSN: postgresql://queuelens:queuelens@postgres:5432/queuelens
-      QUELENS_REDIS_URL: redis://redis:6379/0
+      QUEUELENS_POSTGRES_DSN: postgresql://queuelens:queuelens@postgres:5432/queuelens
+      QUEUELENS_REDIS_URL: redis://redis:6379/0
+      # The token is required and has no default. Set it in the environment
+      # before starting the compose stack.
+      QUEUELENS_ADMIN_TOKEN: ${QUEUELENS_ADMIN_TOKEN:-change-me-at-least-16-characters}
     ports:
       - "8081:8080"

@@ -1,0 +1,15 @@
+{
+  "name": "queuelens-bullmq-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Seeds a real BullMQ 6.x queue so the QueueLens adapter can be tested against the real key layout.",
+  "license": "Apache-2.0",
+  "main": "seed.js",
+  "scripts": {
+    "seed": "node seed.js"
+  },
+  "dependencies": {
+    "bullmq": "6.7.6",
+    "ioredis": "5.4.2"
+  }
+}
