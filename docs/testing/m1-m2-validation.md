@@ -28,13 +28,26 @@ This implementation is unreleased and neither SDK is published to a registry.
 The final Go latency gate passed at 0.103961% added p50 and 4.797447% added p99.
 The cooldown recovery regression and Go SDK race suite passed after that implementation change.
 
+## Container image validation
+
+After Docker recovery, the image built successfully with Go 1.26.11 and ran as UID 65532.
+`bash tests/container/smoke.sh queuelens:m2-test` passed with a read-only root filesystem and all
+Linux capabilities dropped. The actual packaged server applied migrations, passed health/readiness,
+polled an isolated Redis fixture, rejected unauthenticated and invalid heartbeats, persisted one
+completed event and a worker heartbeat in PostgreSQL 16, exposed heartbeat metrics and exited 0
+on graceful shutdown. The fixture uses temporary containers and tmpfs data; existing databases
+and volumes are not used. Actual BullMQ and both SDKs are covered separately by integration tests.
+
+`.dockerignore` excludes local binaries, module caches, node_modules and environment files from the
+build context. CI now builds the image and executes this same container check in addition to the
+portable race, real PostgreSQL/Redis/SDK integration, overhead, lint and security jobs.
+
 ## Limits
 
-Docker Desktop's build service failed and the engine could not restart during final validation.
-Linux checks therefore use WSL. Native integration completed before that infrastructure failure;
-a fresh container image and the updated remote CI have not been executed. CI defines full race
-integration with PostgreSQL, Redis and both SDKs. External-service tests skip when their URLs are
-absent; a passing standalone unit run is not evidence of a second database integration run.
+The earlier Docker infrastructure failure is resolved and the container image check above completed.
+Native integration and Linux/WSL race checks retain the scope described above; remote run status is
+available in GitHub Actions for `feat/m2-implementation`. External-service tests skip when their URLs
+are absent; a passing standalone unit run is not evidence of a second database integration run.
 
 Heartbeats persist worker receipt time. Worker-down detection, lifecycle reconstruction, retention,
 dashboard and alerts remain later milestones. Delivery is best effort; applications stop producers

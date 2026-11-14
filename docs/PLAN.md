@@ -597,8 +597,8 @@ stop producers before Close, and expose drop metrics from the worker process.
 
 **Facts:** the server starts, applies its migrations, serves the HTTP API and stores the events it
 accepts in a partitioned PostgreSQL table. The BullMQ adapter reads real queue counts from Redis. The
-load generator can drive the collector and report what happened. There is no SDK, no lifecycle
-folding, no dashboard, no alert rule and no second adapter.
+Go and TypeScript SDKs emit events and heartbeats; the load generator can drive the collector and
+report what happened. There is no lifecycle folding, dashboard, alert rule or second adapter.
 
 **Rules:**
 

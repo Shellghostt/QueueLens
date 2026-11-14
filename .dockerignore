@@ -1,0 +1,12 @@
+.git
+.codegraph
+.golangci-lint-cache
+bin
+dist
+**/node_modules
+sdk/typescript/dist
+.env
+.env.*
+*.exe
+*.out
+coverage.*
