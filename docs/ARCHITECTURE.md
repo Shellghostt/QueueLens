@@ -1,8 +1,9 @@
 # QueueLens Architecture
 
-**Status: partially implemented (M1).** The collector, the BullMQ adapter, the raw event storage and
-the load generator exist and are tested against a real PostgreSQL and a real Redis. The analytics
-engine, the dashboard, the alert manager and the SDK do not exist yet. The authoritative
+**Status: M2 implemented, unreleased.** The collector, BullMQ adapter, raw event storage, Go and
+TypeScript SDKs, worker heartbeat storage and load generator exist. Both SDKs are tested through
+HTTP against PostgreSQL, and queue collection against real Redis/BullMQ. The analytics
+engine, dashboard and alert manager do not exist yet. The authoritative
 specification is [PLAN.md](PLAN.md), and section 0 there is the current truth.
 
 ## Context
@@ -34,7 +35,9 @@ flowchart LR
     BULL[(Redis / BullMQ)] --> ADP[bullmq adapter]
     ADP --> POL[poller]
     POL --> QV[(queue state in memory)]
-    SDK[SDK / other clients] -.->|M2| COL[collector]
+    SDK[Go / TypeScript SDK] --> COL[collector]
+    SDK --> HB[authenticated heartbeat API]
+    HB --> WK[(workers)]
     COL --> BUF[bounded buffer]
     BUF --> PG[(PostgreSQL, range partitioned)]
     QV --> API[HTTP API]
@@ -51,6 +54,7 @@ flowchart LR
 | `internal/queues` | The last known state of every queue, in memory. It is a live view of the broker, not history. |
 | `internal/collector` | Validate, redact, buffer, batch. No business logic, no unbounded buffering: a full buffer drops the newest events, counts them and answers 429. |
 | `internal/store` | Writes batches to PostgreSQL with `COPY` into a range-partitioned table. |
+| `sdk/go`, `sdk/typescript` | Bounded asynchronous metadata transport, batching, heartbeats and worker drop counters. |
 | `internal/api` | The HTTP endpoints: ingest, queue list, health, readiness, metrics. |
 | `internal/loadgen` | The load generator, so that throughput claims come from a measurement. |
 | `internal/metrics` | The collector's counters, in the Prometheus text format. Plain atomics, no client library: instrumentation must not eat the overhead budget. |
@@ -59,13 +63,14 @@ flowchart LR
 
 Two ingestion paths exist and they are not equivalent:
 
-1. **Push (SDK)** — the application emits lifecycle events. Precise, requires an integration. Arrives
-   with M2.
+1. **Push (SDK)** — the application emits lifecycle events and duration metadata. Requires integration.
 2. **Pull (adapter)** — QueueLens polls the broker. Works with no code change, cannot see in-job
    timing.
 
-M1 ships the pull path and the ingest endpoint. The SDK arrives in M2 and is what makes latency
-accurate.
+The SDK copies metadata on Emit and performs network work in a background goroutine or scheduled
+task. Default capacity is 10,000, batch size 500, flush interval 250 ms and HTTP deadline two seconds.
+Slow requests may delay flushes; Emit stays independent. Heartbeats default to 15 seconds and persist
+server receipt time. Worker-down classification remains M3. See ADR 0004 for the wire and delivery contract.
 
 ## Failure behaviour
 
@@ -74,6 +79,9 @@ accurate.
 | Redis is unreachable | The adapter poll fails, the error is counted, the last known queue state stays available and is marked `stale`. The collector keeps serving. |
 | PostgreSQL is unreachable | The readiness check fails, batch writes are counted as errors, the events in the failed batch are lost. There is no disk queue in M1; that is M3 work. |
 | The buffer is full | The newest events are dropped, `queuelens_buffer_dropped_total` goes up, and the request that hit the limit gets 429 with `Retry-After: 1`. |
+| Collector unreachable from SDK | Transport drops are counted in worker `queuelens_dropped_total`; jobs continue and the SDK does not retry. Go discards queued/new events until the next flush tick after a failure. |
+| SDK buffer full | Newest events are dropped and counted immediately. |
+| Worker shutdown | Stop producers, then Close with a deadline. Undelivered events are counted; collector acceptance is not database durability. |
 | A partition for the current month is missing | The collector creates it at startup. Creating partitions further ahead is M3 work. |
 | A malformed event | It is rejected on its own with a reason. The rest of the batch is still accepted. |
 

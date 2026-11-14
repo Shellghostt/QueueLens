@@ -1,0 +1,41 @@
+# QueueLens M1/M2 validation - 2026-11-14
+
+Work is on `feat/m2-implementation`. Main stays at `246b58601f8d327af953ae5e73dcd5836cad26bd`.
+This implementation is unreleased and neither SDK is published to a registry.
+
+## Executed checks
+
+- Go 1.26.11: complete native unit suite, vet, build, golangci-lint 2.15.0 (zero issues) and
+  govulncheck (no vulnerabilities).
+- TypeScript: strict compilation and all five Node test groups passed; npm audit found zero
+  vulnerabilities. `npm pack --dry-run` contains compiled JavaScript, declarations and README.
+- All 21 shared protocol fixtures pass in Go and TypeScript, covering all seven states,
+  default/optional fields, invalid versions/types/timestamps, and numeric storage limits.
+- Native integration: all eight tests passed against PostgreSQL 16 and Redis 7.2, with real BullMQ
+  6.7.6. Both actual SDKs sent 40 events each through the HTTP collector; all 80 rows and both worker
+  heartbeats persisted. Worker upserts preserve first_seen and advance last_seen.
+- Regression checks exercise concurrent collector cancellation/enqueue, cancellation drain, storage
+  loss counters, malformed/trailing JSON, heartbeat auth/validation/storage failure/deadline,
+  duration overflow, UTF-8 truncation, partial acknowledgements and redirect refusal.
+- Million-event dead/hung collector tests verify bounded buffers, counted overflow and deadline
+  cancellation. See [the overhead report](../benchmarks/m2-sdk-overhead.md) for measurements and limits.
+- OpenAPI YAML and shared fixture JSON parse successfully. The heartbeat path matches server wiring.
+
+- Linux/WSL full unit suite passed with the race detector. External-service tests were skipped in
+  that run because URLs were absent. The native integration run above is the database/broker evidence.
+- CLI builds passed for Linux, macOS and Windows on both amd64 and arm64.
+
+The final Go latency gate passed at 0.103961% added p50 and 4.797447% added p99.
+The cooldown recovery regression and Go SDK race suite passed after that implementation change.
+
+## Limits
+
+Docker Desktop's build service failed and the engine could not restart during final validation.
+Linux checks therefore use WSL. Native integration completed before that infrastructure failure;
+a fresh container image and the updated remote CI have not been executed. CI defines full race
+integration with PostgreSQL, Redis and both SDKs. External-service tests skip when their URLs are
+absent; a passing standalone unit run is not evidence of a second database integration run.
+
+Heartbeats persist worker receipt time. Worker-down detection, lifecycle reconstruction, retention,
+dashboard and alerts remain later milestones. Delivery is best effort; applications stop producers
+before closing the SDK and expose worker drop counters separately from collector metrics.

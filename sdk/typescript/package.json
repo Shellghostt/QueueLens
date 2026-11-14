@@ -1,0 +1,13 @@
+{
+  "name": "@shellghostt/queuelens",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {".": {"types": "./dist/index.d.ts", "import": "./dist/index.js"}},
+  "files": ["dist", "README.md"],
+  "engines": {"node": ">=22"},
+  "scripts": {"build": "tsc", "test": "npm run build && node --test test/*.test.mjs", "bench": "npm run build && node --expose-gc ../../tests/bench/typescript.mjs"},
+  "devDependencies": {"typescript": "5.9.3", "@types/node": "22.19.1"}
+}

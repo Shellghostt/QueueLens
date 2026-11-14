@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -37,6 +38,7 @@ type Server struct {
 	version   string
 	logger    *slog.Logger
 	now       func() time.Time
+	heartbeat func(context.Context, protocol.Heartbeat) error
 }
 
 // Options configures a server.
@@ -49,6 +51,7 @@ type Options struct {
 	Version   string
 	Logger    *slog.Logger
 	Now       func() time.Time
+	Heartbeat func(context.Context, protocol.Heartbeat) error
 }
 
 // New builds the HTTP handler.
@@ -78,6 +81,7 @@ func New(opts Options) http.Handler {
 		version:   opts.Version,
 		logger:    opts.Logger,
 		now:       opts.Now,
+		heartbeat: opts.Heartbeat,
 	}
 
 	router := chi.NewRouter()
@@ -90,6 +94,7 @@ func New(opts Options) http.Handler {
 	router.Group(func(private chi.Router) {
 		private.Use(server.requireToken)
 		private.Post("/v1/events", server.handleIngest)
+		private.Post("/v1/workers/heartbeat", server.handleHeartbeat)
 		private.Get("/v1/queues", server.handleQueues)
 	})
 
@@ -182,7 +187,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if decoder.More() {
+	if decoder.Decode(new(any)) != io.EOF {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "the request body must contain exactly one JSON document",
 		})

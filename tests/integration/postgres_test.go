@@ -174,3 +174,41 @@ func TestTheStorageRejectsAnUnknownState(t *testing.T) {
 		t.Fatal("expected the database to reject an unknown state")
 	}
 }
+
+func TestWorkerHeartbeatPreservesFirstSeenAndUpdatesLastSeen(t *testing.T) {
+	db := newStore(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	h := protocol.Heartbeat{V: 1, WorkerID: "m2-heartbeat-test", Pool: "first"}
+	conn, err := pgx.Connect(ctx, databaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	_, err = conn.Exec(ctx, "DELETE FROM workers WHERE worker_id=$1", h.WorkerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Heartbeat(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	var first, last time.Time
+	if err = conn.QueryRow(ctx, "SELECT first_seen,last_seen FROM workers WHERE worker_id=$1", h.WorkerID).Scan(&first, &last); err != nil {
+		t.Fatal(err)
+	}
+	h.Pool = "second"
+	if err = db.Heartbeat(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	var nextFirst, nextLast time.Time
+	var pool string
+	if err = conn.QueryRow(ctx, "SELECT first_seen,last_seen,pool FROM workers WHERE worker_id=$1", h.WorkerID).Scan(&nextFirst, &nextLast, &pool); err != nil {
+		t.Fatal(err)
+	}
+	if !first.Equal(nextFirst) || nextLast.Before(last) || pool != "second" {
+		t.Fatal(first, last, nextFirst, nextLast, pool)
+	}
+}

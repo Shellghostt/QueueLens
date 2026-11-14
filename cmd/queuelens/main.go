@@ -165,6 +165,7 @@ func runServe(args []string) error {
 		Token:     cfg.AdminToken,
 		Version:   version,
 		Logger:    logger,
+		Heartbeat: db.Heartbeat,
 	})
 
 	server := &http.Server{

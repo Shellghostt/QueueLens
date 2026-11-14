@@ -275,3 +275,28 @@ func TestStopOnACollectorThatWasNeverStarted(t *testing.T) {
 		t.Fatal("Stop blocked on a collector that was never started")
 	}
 }
+
+func TestIngestAfterStopIsCountedInsteadOfPanicking(t *testing.T) {
+	c := newTestCollector(&recordingSink{}, Options{}, nil)
+	c.Stop()
+	r := c.Ingest(context.Background(), []protocol.Event{{V: 1, TS: c.now(), Queue: "q", JobID: "1", State: protocol.StateEnqueued}})
+	if r.Dropped != 1 || c.Metrics().EventsDroppedBuffer.Load() != 1 {
+		t.Fatalf("stopped collector did not account for event: %+v", r)
+	}
+}
+
+func TestCancelDrainsAndStartIsIdempotent(t *testing.T) {
+	sink := &recordingSink{}
+	c := newTestCollector(sink, Options{BufferSize: 100, BatchSize: 10}, nil)
+	for i := 0; i < 100; i++ {
+		c.Ingest(context.Background(), []protocol.Event{{V: 1, TS: c.now(), Queue: "q", JobID: "1", State: protocol.StateEnqueued}})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c.Start(ctx)
+	c.Start(ctx)
+	c.Stop()
+	if sink.count() != 100 {
+		t.Fatalf("lost buffered events on shutdown: persisted %d/100", sink.count())
+	}
+}
