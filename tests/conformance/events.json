@@ -1,0 +1,26 @@
+{
+  "now": "2026-11-14T10:00:00Z",
+  "cases": [
+    {"name":"enqueued","valid":true,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"enqueued"}},
+    {"name":"started","valid":true,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"started","attempt":1}},
+    {"name":"completed","valid":true,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"completed","duration_ms":0}},
+    {"name":"failed","valid":true,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"failed","error":"failure"}},
+    {"name":"retried","valid":true,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"retried","attempt":2}},
+    {"name":"stalled","valid":true,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"stalled"}},
+    {"name":"drained","valid":true,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"drained","future_field":true}},
+    {"name":"version","valid":false,"event":{"v":2,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"started"}},
+    {"name":"queue-required","valid":false,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":" ","job_id":"j","state":"started"}},
+    {"name":"job-required","valid":false,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"","state":"started"}},
+    {"name":"state","valid":false,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"unknown"}},
+    {"name":"timestamp","valid":false,"event":{"v":1,"ts":"bad","queue":"q","job_id":"j","state":"started"}},
+    {"name":"old","valid":false,"event":{"v":1,"ts":"2026-11-01T10:00:00Z","queue":"q","job_id":"j","state":"started"}},
+    {"name":"future","valid":false,"event":{"v":1,"ts":"2026-11-14T12:00:00Z","queue":"q","job_id":"j","state":"started"}},
+    {"name":"attempt-overflow","valid":false,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"started","attempt":32768}},
+    {"name":"duration-overflow","valid":false,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"completed","duration_ms":2147483648}},
+    {"name":"duration-negative","valid":false,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"completed","duration_ms":-1}},
+    {"name":"timestamp-date-only","valid":false,"event":{"v":1,"ts":"2026-11-14","queue":"q","job_id":"j","state":"started"}},
+    {"name":"timestamp-number","valid":false,"event":{"v":1,"ts":1794640800000,"queue":"q","job_id":"j","state":"started"}},
+    {"name":"id-type","valid":false,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"started","id":12}},
+    {"name":"error-type","valid":false,"event":{"v":1,"ts":"2026-11-14T10:00:00Z","queue":"q","job_id":"j","state":"failed","error":12}}
+  ]
+}

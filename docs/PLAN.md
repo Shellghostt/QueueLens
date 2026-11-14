@@ -13,7 +13,7 @@ depends_on:
   - Redis 7.2
   - BullMQ (first supported queue ecosystem)
 created: 2026-11-13
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 # QueueLens — Implementation Plan
@@ -43,12 +43,15 @@ implemented:
   - operational endpoints: /healthz, /readyz, /metrics
   - load generator (queuelens loadgen) and a committed benchmark report
   - unit tests and integration tests against a real postgres and a real redis
+  - go and typescript worker sdk with bounded async buffers and drop counters
+  - authenticated worker heartbeat api and workers table
+  - shared protocol conformance and million-job overhead benchmarks
+  - Go SDK recovery probes keep failed collectors from repeatedly reopening event encoding
 
 not_implemented:
-  - worker instrumentation sdk (go and typescript)
-  - worker heartbeat
   - job lifecycle reconstruction
-  - job_runs, workers, metrics_hourly, alert_rules, alerts_fired tables
+  - worker-down classification
+  - job_runs, metrics_hourly, alert_rules, alerts_fired tables
   - partition maintenance and retention
   - analytics and rollups
   - dashboard
@@ -188,7 +191,8 @@ Two ingestion paths exist and they are not equivalent:
 1. **Push (SDK)** — the application emits lifecycle events. Precise, requires an integration.
 2. **Pull (adapter)** — QueueLens polls the broker. Works with no code change, cannot see in-job timing.
 
-v0.1 ships **pull** only. The SDK arrives at M2 and is what makes latency accurate.
+M1 shipped the pull path and ingest endpoint. M2 adds SDK push instrumentation with explicit duration
+metadata. SDKs remain unpublished source on the feature branch.
 
 ---
 
@@ -299,7 +303,8 @@ Ingest response: `202 {"accepted": 1000, "dropped": 0}`. On saturation: `429` wi
 The SDK treats both as non-fatal and never retries synchronously.
 
 Implemented in M1: `POST /v1/events`, `GET /v1/queues`, `GET /healthz`, `GET /readyz` and
-`GET /metrics`. Every other path in the tables above is planned for M3 to M5 and does not exist yet;
+`GET /metrics`. M2 also implements `POST /v1/workers/heartbeat` for receipt-time persistence.
+Every other path in the tables above is planned for M3 to M5 and does not exist yet;
 `api/openapi.yaml` lists only the paths that are registered in the code.
 
 One addition to the response shape: `rejected` holds one entry per rejected event
@@ -341,12 +346,15 @@ Unknown fields are ignored; `v` must be `1`. Missing `queue` or `job_id` rejects
 | Collector ingest | < 50 ms per 1,000-event batch |
 | Drop rate under load test with a dead collector | 100% of events, 0% of jobs blocked |
 
-The SDK's `Emit` is a non-blocking send to a buffered channel (capacity 10,000). On a full buffer it increments
+The Go SDK's `Emit` is a non-blocking send to a buffered channel; TypeScript uses a fixed ring
+(default capacity 10,000). On a full buffer it increments
 `queuelens_dropped_total` and returns. **It never blocks and never allocates on the hot path beyond the event
 struct.**
 
-M1 status of this budget: the SDK rows do not apply yet, because the SDK is M2. The collector row is
-measured: a 1,000-event batch takes 3.18 ms at p50 and 5.41 ms at p99 end to end over HTTP on
+M2 measurements and their workload limits are recorded in
+[benchmarks/m2-sdk-overhead.md](benchmarks/m2-sdk-overhead.md). Go Emit has zero measured allocations;
+TypeScript's successful enqueue allocation is sampled using Node's heap profiler. The collector row was
+measured in M1: a 1,000-event batch takes 3.18 ms at p50 and 5.41 ms at p99 end to end over HTTP on
 loopback, and the storage write of 1,000 rows takes 7.51 ms against a local PostgreSQL 16 server. The
 budget is 50 ms. The measurements, the hardware and the method are in
 [docs/benchmarks/m1-ingest-5000eps.md](docs/benchmarks/m1-ingest-5000eps.md).
@@ -428,8 +436,8 @@ locally against PostgreSQL 16.16 and Redis 7.2.17, and the CI workflow defines t
 the first run on GitHub on 2026-11-13 passed against PostgreSQL 16 and Redis 7.2 with the real BullMQ
 fixture.
 
-The remaining M1 gaps are the ones the plan itself leaves open: the SDK is M2, and the `job_runs`,
-`workers`, `metrics_hourly`, `alert_rules` and `alerts_fired` tables arrive with M3 and M5. M1
+M2 adds the SDK and the `workers` table (ADR 0004 supersedes that part of ADR 0002 decision 12).
+The `job_runs`, `metrics_hourly`, `alert_rules` and `alerts_fired` tables arrive with M3 and M5. M1
 creates the partition for the current month and the next one at startup; keeping two months ahead is
 M3 work.
 
@@ -446,12 +454,22 @@ macos-latest.
 
 **Acceptance criteria**
 
-- [ ] `Emit` never blocks under a dead collector (test: kill collector, run 1M jobs, assert job latency
+- [x] `Emit` never blocks under a dead collector (test: kill collector, run 1M jobs, assert job latency
       unchanged within noise)
-- [ ] Added p50 latency < 2% in `tests/bench`, report committed
-- [ ] Buffer overflow increments `queuelens_dropped_total`
-- [ ] SDK works with no configuration beyond the collector URL and token
-- [ ] Both SDKs implement protocol v1 and pass the shared conformance test
+- [x] Added p50 latency < 2% in `tests/bench`, report committed
+- [x] Buffer overflow increments `queuelens_dropped_total`
+- [x] SDK works with no configuration beyond the collector URL and token
+- [x] Both SDKs implement protocol v1 and pass the shared conformance test
+
+Evidence: [benchmark report](benchmarks/m2-sdk-overhead.md) and
+[validation report](testing/m1-m2-validation.md). Heartbeats use server receipt time and persist
+first/last seen plus optional pool. Worker-down classification remains M3. SDKs are best effort;
+stop producers before Close, and expose drop metrics from the worker process.
+
+The Go SDK keeps a failed transport closed until an authenticated heartbeat probe returns HTTP 202.
+Flush ticks probe while closed rather than admitting another burst of events to an unavailable collector;
+failed events remain drops. [ADR 0005](adr/0005-go-sdk-recovery-probes.md) supersedes the Go cooldown
+decision in ADR 0004. The benchmark workload and p50/p99 budgets remain unchanged.
 
 ### M3 — Lifecycle and failure analysis
 
@@ -516,11 +534,11 @@ macos-latest.
 | QL-007 | Bounded buffer and drop counter | QL-006 | M1 | Done |
 | QL-008 | Batch writer to partitioned table | QL-007 | M1 | Done |
 | QL-009 | Load generator | QL-006 | M1 | Done |
-| QL-010 | Go SDK emit API | QL-002 | M2 | Not started |
-| QL-011 | TS SDK emit API | QL-002 | M2 | Not started |
-| QL-012 | Non-blocking buffer test (dead collector) | QL-010 | M2 | Not started |
-| QL-013 | Overhead benchmark and report | QL-012 | M2 | Not started |
-| QL-014 | Worker heartbeat endpoint and table | QL-001 | M2 | Not started |
+| QL-010 | Go SDK emit API | QL-002 | M2 | Done |
+| QL-011 | TS SDK emit API | QL-002 | M2 | Done |
+| QL-012 | Non-blocking buffer test (dead collector) | QL-010 | M2 | Done |
+| QL-013 | Overhead benchmark and report | QL-012 | M2 | Done |
+| QL-014 | Worker heartbeat endpoint and table | QL-001 | M2 | Done |
 | QL-015 | Lifecycle folder (events → job_runs) | QL-008 | M3 | Not started |
 | QL-016 | Out-of-order property test | QL-015 | M3 | Not started |
 | QL-017 | Stall and dead-worker detection | QL-015 | M3 | Not started |
@@ -585,8 +603,8 @@ macos-latest.
 
 **Facts:** the server starts, applies its migrations, serves the HTTP API and stores the events it
 accepts in a partitioned PostgreSQL table. The BullMQ adapter reads real queue counts from Redis. The
-load generator can drive the collector and report what happened. There is no SDK, no lifecycle
-folding, no dashboard, no alert rule and no second adapter.
+Go and TypeScript SDKs emit events and heartbeats; the load generator can drive the collector and
+report what happened. There is no lifecycle folding, dashboard, alert rule or second adapter.
 
 **Rules:**
 
@@ -616,11 +634,10 @@ folding, no dashboard, no alert rule and no second adapter.
 
 1. Read sections 0, 3 and 9, then section 16.
 2. `make build && ./bin/queuelens version`.
-3. M1 is done and tagged. The next milestone is **M2, the instrumentation SDK**: start at QL-010 (the
-   Go SDK), then QL-011 (the TypeScript SDK), then QL-012 and QL-013. The shared protocol conformance
-   test belongs to M2 and is the first thing to write, because it is what keeps the two SDKs honest.
+3. M1 is tagged and M2 is implemented on the feature branch. The next milestone is M3, starting
+   with QL-015 lifecycle folding. Shared SDK conformance and heartbeat integration remain regression gates.
 4. Run the overhead benchmark before and after any change to the emit path:
-   `make bench` for the storage path, `make loadtest` for the five-minute ingest run.
+   `make sdk-bench` on Linux for both SDKs, `make bench` for storage and `make loadtest` for ingest.
 5. Never add an adapter without the conformance suite.
 6. The collector's environment prefix is `QUEUELENS_*`; `QUELENS_*` is an alias, not a rename. Do not
    remove the alias without an ADR.

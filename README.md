@@ -2,12 +2,13 @@
 
 > A self-hosted observability platform for distributed background job systems.
 
-![status](https://img.shields.io/badge/status-M1_collection-orange)
+![status](https://img.shields.io/badge/status-M2_instrumentation-orange)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
 
-**Status: M1 (v0.1.0).** QueueLens reads queue state from a broker, accepts job lifecycle events
-over HTTP and stores them in PostgreSQL. **It does not analyse anything yet**: there is no lifecycle
+**Status: M2 implemented on the feature branch (unreleased).** QueueLens reads queue state from a broker,
+accepts job lifecycle events from Go and TypeScript workers and stores events and heartbeats in
+PostgreSQL. **It does not analyse anything yet**: there is no lifecycle
 reconstruction, no stall detection, no dashboard and no alert rule. What exists is the part that
 everything else will be built on, and it is tested against a real PostgreSQL and a real Redis.
 
@@ -26,8 +27,9 @@ job lifecycle directly: enqueued, started, retried, failed, stalled, completed.
 | Store raw events in a time-partitioned PostgreSQL table | M1 | **Done** |
 | Survive a broken broker without losing the last known state | M1 | **Done** |
 | Report collector counters in the Prometheus text format | M1 | **Done** |
-| Go and TypeScript instrumentation SDKs | M2 | Not started |
-| Worker health tracking | M2 | Not started |
+| Go and TypeScript instrumentation SDKs | M2 | **Done**, unpublished |
+| Authenticated worker heartbeat and receipt-time storage | M2 | **Done** |
+| Worker-down classification | M3 | Not started |
 | Job lifecycle reconstruction and failed/stalled detection | M3 | Not started |
 | Historical performance analytics | M4 | Not started |
 | Configurable alerting | M5 | Not started |
@@ -175,6 +177,13 @@ retention is M3 work and there are no rollup tables yet.
 
 ## Measured performance
 
+The M2 dead-collector workload, latency and allocation measurements are documented in
+[docs/benchmarks/m2-sdk-overhead.md](docs/benchmarks/m2-sdk-overhead.md). SDK integration and
+validation evidence is in [docs/testing/m1-m2-validation.md](docs/testing/m1-m2-validation.md).
+Usage and shutdown examples are in the [Go SDK](sdk/go/README.md) and
+[TypeScript SDK](sdk/typescript/README.md) guides. Each worker exposes `queuelens_dropped_total`;
+the collector cannot count telemetry that never reaches it. Stop producers before draining an SDK.
+
 Every number below comes from a run in this repository. The hardware, the method and what the run
 does not prove are in [docs/benchmarks/m1-ingest-5000eps.md](docs/benchmarks/m1-ingest-5000eps.md).
 
@@ -195,6 +204,7 @@ the database shared the same host, so this is a local measurement, not a cloud o
 |---|---|
 | `cmd/queuelens` | Server entry point: `serve`, `loadgen`, `version` |
 | `pkg/protocol` | Versioned event schema, validation, redaction, sortable identifiers |
+| `sdk/go`, `sdk/typescript` | Best-effort asynchronous worker instrumentation and heartbeats |
 | `internal/adapter` | The interface every queue adapter implements |
 | `internal/adapter/bullmq` | The BullMQ adapter, reading Redis directly |
 | `internal/collector` | Ingest pipeline, bounded buffer, backpressure |
@@ -216,7 +226,7 @@ the database shared the same host, so this is a local measurement, not a cloud o
 | Milestone | Deliverable | Status |
 |---|---|---|
 | M1 | Adapter interface, Redis adapter and event collection | **Done** (v0.1.0) |
-| M2 | Worker instrumentation and worker health tracking | Not started |
+| M2 | Worker instrumentation and heartbeat storage | **Done**, unreleased |
 | M3 | Job lifecycle tracking, failed and stalled detection | Not started |
 | M4 | Dashboard with queue state and job timelines | Not started |
 | M5 | Metrics, alerting and retry analysis | Not started |
@@ -229,6 +239,7 @@ the README is a bug.
 
 ```bash
 make test         # unit tests, no infrastructure needed
+make sdk-test     # install/build/test TypeScript and test Go SDK conformance
 make db-up        # postgres and redis
 make fixture      # npm install for the BullMQ fixture
 make integration  # against the real servers

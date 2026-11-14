@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Version is the only protocol version this build accepts.
@@ -192,6 +193,9 @@ func (e *Event) Validate(now time.Time, limits Limits) error {
 	if e.DurationMS != nil && *e.DurationMS < 0 {
 		return &ValidationError{Field: "duration_ms", Reason: "must not be negative"}
 	}
+	if e.DurationMS != nil && *e.DurationMS > 2147483647 {
+		return &ValidationError{Field: "duration_ms", Reason: "must not exceed 2147483647"}
+	}
 	if e.TS.IsZero() {
 		return &ValidationError{Field: "ts", Reason: "is required"}
 	}
@@ -215,6 +219,9 @@ func (e *Event) Normalize(limits Limits) {
 	}
 	if len(e.Error) > limits.MaxErrorLen {
 		e.Error = e.Error[:limits.MaxErrorLen]
+		for !utf8.ValidString(e.Error) {
+			e.Error = e.Error[:len(e.Error)-1]
+		}
 	}
 	e.Error = RedactSecrets(e.Error)
 }

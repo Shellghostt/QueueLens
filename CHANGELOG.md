@@ -9,6 +9,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- M2 Go and TypeScript SDKs with bounded non-blocking metadata buffers, background batches,
+  generated worker identity, 15 second heartbeats, deadline-bounded Close and worker drop metrics.
+- Authenticated `POST /v1/workers/heartbeat`, migration 0002 and receipt-time worker upserts.
+- Shared protocol v1 conformance fixtures, both SDKs tested through the real collector/PostgreSQL,
+  million-job dead-collector gates and an overhead report. SDKs remain unpublished.
+
 - The BullMQ fixture is checked with MemGuard, a static analyser for JavaScript memory and resource
   problems, pinned as a development dependency. `make memory-check` runs it locally and CI runs it
   on every pull request. It reads source; it does not observe runtime behaviour, and a clean run is
@@ -41,6 +47,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Go SDK outage recovery requires a successful authenticated heartbeat probe before reopening the
+  event buffer. Failed collectors no longer trigger repeated batch encoding on every flush tick;
+  dropped-event accounting and deadline-bounded shutdown are preserved (ADR 0005).
+- Collector cancellation closes enqueue safely before draining, preventing send/close races.
+- Storage failures now count accepted events lost after acknowledgement.
+- Ingest refuses trailing JSON documents; duration values must fit PostgreSQL integer storage;
+  truncated error strings preserve UTF-8.
+
 - The collector test that waits for the writer to flush now waits for the persisted counter rather
   than for the sink. The writer records a batch in the sink and bumps the counter afterwards, so the
   old test could read the counter before the last batch was accounted for and fail intermittently.
@@ -48,8 +62,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Planned
 
-- M2: the Go and TypeScript instrumentation SDKs, the worker heartbeat and the shared protocol
-  conformance test.
+- M3: lifecycle folding, stalled/dead-worker classification and retention.
 
 ## [0.1.0] - 2026-11-13
 

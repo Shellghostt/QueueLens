@@ -11,7 +11,6 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/shellghostt/queuelens/internal/metrics"
@@ -63,9 +62,10 @@ type Collector struct {
 	logger     *slog.Logger
 	now        func() time.Time
 
-	stopOnce sync.Once
-	started  atomic.Bool
-	stopped  chan struct{}
+	startOnce sync.Once
+	bufferMu  sync.RWMutex
+	closed    bool
+	stopped   chan struct{}
 }
 
 // New creates a collector. BufferSize is the number of events that may wait
@@ -107,21 +107,39 @@ func (c *Collector) Metrics() *metrics.Metrics { return c.metrics }
 
 // Start runs the writer until the context is cancelled.
 func (c *Collector) Start(ctx context.Context) {
-	c.started.Store(true)
-	go c.writeLoop(ctx)
+	c.startOnce.Do(func() { go c.writeLoop(ctx) })
 }
 
 // Stop closes the buffer and waits for the writer to finish. It is safe to
 // call more than once, and safe to call on a collector that was never
 // started.
 func (c *Collector) Stop() {
-	c.stopOnce.Do(func() {
-		close(c.buffer)
-	})
-	if !c.started.Load() {
-		return
-	}
+	c.closeBuffer()
+	c.Start(context.Background())
 	<-c.stopped
+}
+
+func (c *Collector) closeBuffer() {
+	c.bufferMu.Lock()
+	defer c.bufferMu.Unlock()
+	if !c.closed {
+		c.closed = true
+		close(c.buffer)
+	}
+}
+
+func (c *Collector) enqueue(event protocol.Event) bool {
+	c.bufferMu.RLock()
+	defer c.bufferMu.RUnlock()
+	if c.closed {
+		return false
+	}
+	select {
+	case c.buffer <- event:
+		return true
+	default:
+		return false
+	}
 }
 
 // Ingest validates a batch and puts the valid events into the buffer.
@@ -164,11 +182,10 @@ func (c *Collector) Ingest(ctx context.Context, events []protocol.Event) Result 
 			event.ID = generated
 		}
 
-		select {
-		case c.buffer <- event:
+		if c.enqueue(event) {
 			c.metrics.EventsAccepted.Add(1)
 			result.Accepted++
-		default:
+		} else {
 			c.metrics.EventsDroppedBuffer.Add(1)
 			result.Dropped++
 		}
@@ -187,13 +204,14 @@ func (c *Collector) writeLoop(ctx context.Context) {
 	ticker := time.NewTicker(c.flushEvery)
 	defer ticker.Stop()
 
-	flush := func() {
+	flush := func(writeCtx context.Context) {
 		if len(batch) == 0 {
 			return
 		}
-		written, err := c.sink.WriteBatch(ctx, batch)
+		written, err := c.sink.WriteBatch(writeCtx, batch)
 		if err != nil {
 			c.metrics.BatchErrors.Add(1)
+			c.metrics.EventsLost.Add(uint64(len(batch)))
 			c.logger.Error(
 				"write batch failed; events are lost and counted",
 				"events", len(batch),
@@ -205,22 +223,34 @@ func (c *Collector) writeLoop(ctx context.Context) {
 		}
 		batch = batch[:0]
 	}
+	drain := func() {
+		c.closeBuffer()
+		drainCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		for event := range c.buffer {
+			batch = append(batch, event)
+			if len(batch) >= c.batchSize {
+				flush(drainCtx)
+			}
+		}
+		flush(drainCtx)
+	}
 
 	for {
 		select {
 		case event, ok := <-c.buffer:
 			if !ok {
-				flush()
+				drain()
 				return
 			}
 			batch = append(batch, event)
 			if len(batch) >= c.batchSize {
-				flush()
+				flush(ctx)
 			}
 		case <-ticker.C:
-			flush()
+			flush(ctx)
 		case <-ctx.Done():
-			flush()
+			drain()
 			return
 		}
 	}

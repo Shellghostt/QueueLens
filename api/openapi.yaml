@@ -3,7 +3,7 @@ info:
   title: QueueLens API
   version: 0.1.0
   description: |
-    Status: M1. Only the paths that are implemented may appear here.
+    Status: M2, unreleased. Only implemented paths appear here.
     Adding a path before implementing it is treated as a documentation bug.
 
     The collector and the query API share one bearer token. Every path that
@@ -20,6 +20,25 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /v1/workers/heartbeat:
+    post:
+      summary: Persist worker liveness using collector receipt time
+      description: One JSON object, at most 16 KiB. Unknown fields are ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Heartbeat'
+      responses:
+        '202':
+          description: Heartbeat persisted; first_seen is preserved and last_seen advances
+        '400':
+          description: Invalid heartbeat or body
+        '401':
+          description: Missing or invalid bearer token
+        '503':
+          description: Storage is unavailable or exceeded its two-second deadline
   /v1/events:
     post:
       summary: Ingest a batch of queue events
@@ -153,6 +172,22 @@ components:
       type: http
       scheme: bearer
   schemas:
+    Heartbeat:
+      type: object
+      required: [v, worker_id]
+      properties:
+        v:
+          type: integer
+          const: 1
+        worker_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Identity bounded to 128 UTF-8 bytes by the collector
+        pool:
+          type: string
+          maxLength: 128
+      additionalProperties: true
     Event:
       type: object
       required: [v, ts, queue, job_id, state]
@@ -193,6 +228,7 @@ components:
         duration_ms:
           type: integer
           minimum: 0
+          maximum: 2147483647
         error:
           type: string
           maxLength: 1024

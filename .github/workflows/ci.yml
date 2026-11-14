@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**', 'fix/**']
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,6 +14,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  container:
+    name: Container image integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build image
+        run: docker build --build-arg VERSION=ci-${{ github.sha }} -t queuelens:ci .
+      - name: Exercise packaged server
+        run: bash tests/container/smoke.sh queuelens:ci
+
   test:
     name: Build and test
     runs-on: ${{ matrix.os }}
@@ -42,7 +54,7 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test -race -count=1 ./...
+        run: go test -race -count=1 -timeout=120s ./...
 
       - name: Build
         run: go build ./...
@@ -91,6 +103,12 @@ jobs:
         working-directory: tests/integration/bullmq
         run: npm install
 
+      - name: Build TypeScript SDK
+        working-directory: sdk/typescript
+        run: |
+          npm ci
+          npm test
+
       - name: MemGuard static check (JavaScript fixture)
         working-directory: tests/integration/bullmq
         run: npm run memory:check
@@ -99,7 +117,31 @@ jobs:
         env:
           QUEUELENS_TEST_DATABASE_URL: postgresql://queuelens:queuelens@localhost:5432/queuelens
           QUEUELENS_TEST_REDIS_URL: redis://localhost:6379/0
-        run: go test -count=1 -v ./tests/integration
+        run: go test -race -count=1 -timeout=120s -v ./tests/integration
+
+  sdk:
+    name: SDK conformance, audit and overhead gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - working-directory: sdk/typescript
+        run: |
+          npm ci
+          npm test
+          npm audit
+          npm run bench
+      - name: Go overhead gate
+        env:
+          QUEUELENS_RUN_BENCH: '1'
+        run: go test -count=1 -timeout=120s -v ./tests/bench
 
   lint:
     name: Lint

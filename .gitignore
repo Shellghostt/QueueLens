@@ -27,3 +27,7 @@ tests/integration/bullmq/package-lock.json
 .vscode/
 *.swp
 .DS_Store
+
+# M2 TypeScript SDK build output
+sdk/typescript/node_modules/
+sdk/typescript/dist/
