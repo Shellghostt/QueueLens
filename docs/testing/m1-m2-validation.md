@@ -25,8 +25,18 @@ This implementation is unreleased and neither SDK is published to a registry.
   that run because URLs were absent. The native integration run above is the database/broker evidence.
 - CLI builds passed for Linux, macOS and Windows on both amd64 and arm64.
 
-The final Go latency gate passed at 0.103961% added p50 and 4.797447% added p99.
-The cooldown recovery regression and Go SDK race suite passed after that implementation change.
+The initial Go latency gate passed at 0.103961% added p50 and 4.797447% added p99.
+The later PR run failed at 25.767872% added p99. Three local Linux runs reproduced 29.729457–34.518950%.
+Go recovery now requires a successful authenticated heartbeat before reopening the event buffer
+(ADR 0005). The unchanged gate then passed all three consecutive Linux runs with GOMAXPROCS=2:
+0–0.093565% added p50 and 0.095735–0.712058% added p99. Exact samples are in the overhead report.
+
+`TestFailedCollectorStaysClosedUntilHealthyProbe` failed before the fix and passed afterward. It
+uses a real HTTP server, rejects 10,000 events after a failed recovery probe without another event
+batch, then restores the collector and verifies successful delivery and complete event accounting.
+The post-fix native full suite, Linux full race suite, vet and golangci-lint passed. External-service
+tests skipped in these standalone runs because service URLs were absent; the PR CI integration job
+provides the updated real PostgreSQL/Redis/BullMQ and SDK validation.
 
 ## Container image validation
 

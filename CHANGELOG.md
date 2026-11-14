@@ -47,6 +47,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Go SDK outage recovery requires a successful authenticated heartbeat probe before reopening the
+  event buffer. Failed collectors no longer trigger repeated batch encoding on every flush tick;
+  dropped-event accounting and deadline-bounded shutdown are preserved (ADR 0005).
 - Collector cancellation closes enqueue safely before draining, preventing send/close races.
 - Storage failures now count accepted events lost after acknowledgement.
 - Ingest refuses trailing JSON documents; duration values must fit PostgreSQL integer storage;

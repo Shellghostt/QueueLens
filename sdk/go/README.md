@@ -20,10 +20,11 @@ Emit performs a non-blocking channel send, copies duration values and defaults v
 identity. No JSON encoding, validation or HTTP occurs on that path. A background goroutine batches up to
 500 events every 250 ms and sends heartbeats every 15 seconds. Requests time out after two seconds,
 redirects are refused and there is no retry. Buffers hold 10,000 events; newest arrivals are dropped on
-overflow. After a transport failure or invalid acknowledgement, queued/new events are counted as drops
-until the next flush tick permits new traffic. This bounds repeated encoding/connection work while
-the collector is dead; failed events are never retried. Stop emitting before Close for a full final
-drain. Emit after Close returns false.
+overflow. After a transport failure or invalid acknowledgement, queued/new events are counted as drops.
+Each flush tick probes the authenticated heartbeat endpoint; only HTTP 202 reopens the event buffer.
+Failed probes keep event encoding disabled while the collector is dead; failed events are never retried.
+Recovery probes use the existing request deadline and heartbeat counters. Stop emitting before Close
+for a full final drain. Emit after Close returns false.
 
 `Stats().Sent` counts collector acceptance, not durable PostgreSQL writes. `Dropped` counts buffer,
 transport and malformed-acknowledgement losses; `Rejected` counts collector validation rejections.

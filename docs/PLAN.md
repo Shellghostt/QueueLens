@@ -46,6 +46,7 @@ implemented:
   - go and typescript worker sdk with bounded async buffers and drop counters
   - authenticated worker heartbeat api and workers table
   - shared protocol conformance and million-job overhead benchmarks
+  - Go SDK recovery probes keep failed collectors from repeatedly reopening event encoding
 
 not_implemented:
   - job lifecycle reconstruction
@@ -464,6 +465,11 @@ Evidence: [benchmark report](benchmarks/m2-sdk-overhead.md) and
 [validation report](testing/m1-m2-validation.md). Heartbeats use server receipt time and persist
 first/last seen plus optional pool. Worker-down classification remains M3. SDKs are best effort;
 stop producers before Close, and expose drop metrics from the worker process.
+
+The Go SDK keeps a failed transport closed until an authenticated heartbeat probe returns HTTP 202.
+Flush ticks probe while closed rather than admitting another burst of events to an unavailable collector;
+failed events remain drops. [ADR 0005](adr/0005-go-sdk-recovery-probes.md) supersedes the Go cooldown
+decision in ADR 0004. The benchmark workload and p50/p99 budgets remain unchanged.
 
 ### M3 — Lifecycle and failure analysis
 

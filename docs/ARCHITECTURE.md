@@ -79,7 +79,7 @@ server receipt time. Worker-down classification remains M3. See ADR 0004 for the
 | Redis is unreachable | The adapter poll fails, the error is counted, the last known queue state stays available and is marked `stale`. The collector keeps serving. |
 | PostgreSQL is unreachable | The readiness check fails, batch writes are counted as errors, the events in the failed batch are lost. There is no disk queue in M1; that is M3 work. |
 | The buffer is full | The newest events are dropped, `queuelens_buffer_dropped_total` goes up, and the request that hit the limit gets 429 with `Retry-After: 1`. |
-| Collector unreachable from SDK | Transport drops are counted in worker `queuelens_dropped_total`; jobs continue and the SDK does not retry. Go discards queued/new events until the next flush tick after a failure. |
+| Collector unreachable from SDK | Transport drops are counted in worker `queuelens_dropped_total`; jobs continue and failed events are not retried. Go discards queued/new events until an authenticated recovery heartbeat succeeds; flush ticks probe without reopening event encoding. |
 | SDK buffer full | Newest events are dropped and counted immediately. |
 | Worker shutdown | Stop producers, then Close with a deadline. Undelivered events are counted; collector acceptance is not database durability. |
 | A partition for the current month is missing | The collector creates it at startup. Creating partitions further ahead is M3 work. |

@@ -167,13 +167,14 @@ func (c *Client) post(path string, payload any) ([]byte, int, error) {
 	}
 	return data, resp.StatusCode, err
 }
-func (c *Client) heartbeat() {
+func (c *Client) heartbeat() bool {
 	_, status, err := c.post("/v1/workers/heartbeat", protocol.Heartbeat{V: 1, WorkerID: c.opts.WorkerID, Pool: c.opts.Pool})
 	if err != nil || status != 202 {
 		c.heartbeatErrors.Add(1)
-	} else {
-		c.heartbeats.Add(1)
+		return false
 	}
+	c.heartbeats.Add(1)
+	return true
 }
 func (c *Client) run() {
 	defer close(c.done)
@@ -203,8 +204,8 @@ func (c *Client) run() {
 		}
 		if err != nil || (status != 202 && status != 429 && status != 400) || json.Unmarshal(data, &ack) != nil || ack.Accepted < 0 || ack.Dropped < 0 || ack.Accepted+ack.Dropped+len(ack.Rejected) != len(batch) {
 			c.dropped.Add(uint64(len(batch)))
-			// Failed transport must not turn a dead collector into continuous
-			// encoding/connection work. Drop new events until the next flush tick.
+			// Keep a failed collector from triggering continuous batch encoding.
+			// Only a successful recovery heartbeat reopens the event buffer.
 			c.unavailable.Store(true)
 			for draining := true; draining; {
 				select {
@@ -235,7 +236,12 @@ func (c *Client) run() {
 				flush()
 			}
 		case <-tick.C:
-			c.unavailable.Store(false)
+			if c.unavailable.Load() {
+				if !c.heartbeat() {
+					continue
+				}
+				c.unavailable.Store(false)
+			}
 			flush()
 		case <-hb.C:
 			c.heartbeat()
@@ -243,6 +249,10 @@ func (c *Client) run() {
 			for {
 				select {
 				case q := <-c.buffer:
+					if c.unavailable.Load() {
+						c.dropped.Add(1)
+						continue
+					}
 					add(q)
 					if len(batch) >= c.opts.BatchSize {
 						flush()

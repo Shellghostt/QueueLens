@@ -157,6 +157,76 @@ func TestTransportCooldownRecovers(t *testing.T) {
 	}
 }
 
+func TestFailedCollectorStaysClosedUntilHealthyProbe(t *testing.T) {
+	var healthy atomic.Bool
+	var probes, batches atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/workers/heartbeat" {
+			probes.Add(1)
+			if healthy.Load() {
+				w.WriteHeader(http.StatusAccepted)
+			} else {
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}
+			return
+		}
+		batches.Add(1)
+		if !healthy.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		var events []protocol.Event
+		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{"accepted": len(events), "dropped": 0, "rejected": []any{}})
+	}))
+	defer server.Close()
+	c, err := New(Options{URL: server.URL, Token: "0123456789abcdef", BatchSize: 1, FlushEvery: 10 * time.Millisecond, HeartbeatEvery: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close(context.Background()) }()
+	e := protocol.Event{Queue: "q", JobID: "j", State: protocol.StateStarted}
+	if !c.Emit(e) {
+		t.Fatal("initial event was not accepted")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for (c.Stats().Dropped != 1 || probes.Load() < 2) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if c.Stats().Dropped != 1 || probes.Load() < 2 {
+		t.Fatal("failed collector was not probed after dropping the failed batch")
+	}
+	for i := 0; i < 10000; i++ {
+		if c.Emit(e) {
+			t.Fatal("an unsuccessful recovery probe reopened the event buffer")
+		}
+	}
+	if batches.Load() != 1 {
+		t.Fatalf("outage encoded/sent additional event batches: %d", batches.Load())
+	}
+	healthy.Store(true)
+	accepted := false
+	for !accepted && time.Now().Before(deadline) {
+		accepted = c.Emit(e)
+		if !accepted {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if !accepted {
+		t.Fatal("healthy collector did not recover")
+	}
+	if err = c.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	stats := c.Stats()
+	if stats.Sent != 1 || stats.Buffered != 0 || stats.Emitted != stats.Dropped+stats.Sent || batches.Load() != 2 {
+		t.Fatal(stats, batches.Load())
+	}
+}
+
 func TestBadAcknowledgementAndRedirectAreCounted(t *testing.T) {
 	for _, response := range []string{`{"accepted":-1,"dropped":2,"rejected":[]}`, `not-json`} {
 		t.Run(response, func(t *testing.T) {
