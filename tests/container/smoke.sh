@@ -36,7 +36,9 @@ docker run -d --name "$redis" --network "$network" --network-alias redis \
 
 ready=false
 for (( i=0; i<60; i++ )); do
-  if docker exec "$postgres" pg_isready -U queuelens >/dev/null 2>&1 &&
+  # The entrypoint's temporary initialization server listens only on a Unix
+  # socket. Wait for the final TCP listener before starting the collector.
+  if docker exec "$postgres" pg_isready -h 127.0.0.1 -U queuelens >/dev/null 2>&1 &&
      [[ $(docker exec "$redis" redis-cli ping 2>/dev/null) == PONG ]]; then
     ready=true
     break
@@ -56,8 +58,17 @@ docker run -d --name "$collector" --network "$network" --read-only --cap-drop AL
   "$image" >/dev/null
 port=$(docker port "$collector" 8080/tcp)
 url="http://$port"
-curl --fail --silent --show-error --max-time 2 --retry 60 --retry-delay 1 \
-  --retry-connrefused "$url/readyz" >"$work/ready.json"
+ready=false
+for (( i=0; i<60; i++ )); do
+  # A newly published Docker port may briefly reset a connection before the
+  # application is listening. Bound retries for all startup failures.
+  if curl --fail --silent --max-time 2 "$url/readyz" >"$work/ready.json"; then
+    ready=true
+    break
+  fi
+  sleep 1
+done
+[[ $ready == true ]]
 curl --fail --silent --show-error "$url/healthz" >"$work/health.json"
 
 [[ $(curl --silent --output /dev/null --write-out '%{http_code}' \
