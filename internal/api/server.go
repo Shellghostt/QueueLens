@@ -20,6 +20,7 @@ import (
 
 	"github.com/shellghostt/queuelens/internal/collector"
 	"github.com/shellghostt/queuelens/internal/config"
+	"github.com/shellghostt/queuelens/internal/lifecycle"
 	"github.com/shellghostt/queuelens/internal/metrics"
 	"github.com/shellghostt/queuelens/internal/queues"
 	"github.com/shellghostt/queuelens/pkg/protocol"
@@ -39,6 +40,7 @@ type Server struct {
 	logger    *slog.Logger
 	now       func() time.Time
 	heartbeat func(context.Context, protocol.Heartbeat) error
+	lifecycle lifecycle.Reader
 }
 
 // Options configures a server.
@@ -52,6 +54,7 @@ type Options struct {
 	Logger    *slog.Logger
 	Now       func() time.Time
 	Heartbeat func(context.Context, protocol.Heartbeat) error
+	Lifecycle lifecycle.Reader
 }
 
 // New builds the HTTP handler.
@@ -82,6 +85,7 @@ func New(opts Options) http.Handler {
 		logger:    opts.Logger,
 		now:       opts.Now,
 		heartbeat: opts.Heartbeat,
+		lifecycle: opts.Lifecycle,
 	}
 
 	router := chi.NewRouter()
@@ -96,6 +100,10 @@ func New(opts Options) http.Handler {
 		private.Post("/v1/events", server.handleIngest)
 		private.Post("/v1/workers/heartbeat", server.handleHeartbeat)
 		private.Get("/v1/queues", server.handleQueues)
+		private.Get("/v1/jobs/failed", server.handleFailedJobs)
+		private.Get("/v1/jobs/stalled", server.handleStalledJobs)
+		private.Get("/v1/jobs/suspected-stalled", server.handleSuspectedStalls)
+		private.Get("/v1/workers", server.handleWorkers)
 	})
 
 	return router

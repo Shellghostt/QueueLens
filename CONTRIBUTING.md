@@ -9,6 +9,9 @@ Thanks for taking the time. This document is deliberately short and specific.
 2. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - how the pieces fit together.
 3. [docs/adr/](docs/adr/) - decisions that have already been argued about. Do not relitigate them
    without a new ADR.
+4. [docs/phases/M3.md](docs/phases/M3.md) - M3 scope, evidence, unresolved ADR decisions and acceptance gates.
+5. [docs/DEVELOPMENT-TOOLS.md](docs/DEVELOPMENT-TOOLS.md) - CodeGraph freshness, static-analysis coverage
+   and profiling appropriate to this repository's runtime.
 
 ## Ground rules
 
@@ -56,13 +59,16 @@ The index lives in `.codegraph/`. Git ignores its database and temporary files; 
 
 ## JavaScript static analysis
 
-The BullMQ fixture is the only JavaScript in this repository. It is checked with
+The BullMQ fixture and TypeScript SDK contain JavaScript/TypeScript. The fixture is checked with
 [MemGuard](https://www.npmjs.com/package/memguard), a static analyser for memory and resource
 problems, pinned as a development dependency of the fixture:
 
 ```bash
 make memory-check
 ```
+
+The same pinned executable can analyze `sdk/typescript/src` manually; that SDK check is not a CI gate.
+Static scope and runtime sampling evidence are recorded in [M3 validation](docs/testing/m3-lifecycle.md).
 
 MemGuard requires Node 22 or newer, so the fixture's `package.json` says so and CI uses Node 22.
 

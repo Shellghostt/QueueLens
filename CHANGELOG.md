@@ -9,6 +9,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- [M3 requirements](docs/phases/M3.md) with phase boundaries, failure cases, ADR prerequisites and
+  acceptance gates, plus a [development-tool audit](docs/DEVELOPMENT-TOOLS.md).
+- M3 producer identity persistence and atomic duplicate/conflict handling, with forward migration 0003
+  preserving M2 rows and nine-column COPY compatibility.
+- Bounded deterministic attempt/job projections, exact transactional processing markers and a durable
+  round-robin partition cursor that revisits late commits. Missing timing/history and retry exhaustion
+  stay unknown; job-ID reuse/contradiction evidence is retained.
+- Authenticated paginated `/v1/jobs/failed`, `/v1/jobs/stalled`, `/v1/jobs/suspected-stalled` and
+  `/v1/workers`, with signed cursors, receipt/tick-based suspicion and bounded lag evidence.
+- Checked UTC partition maintenance and default 30-day raw/history retention, with durable bounded
+  pruning for large attempt histories and reconstruction tombstones.
+- Nineteen M3 integration tests, pure folding/configuration checks, packaged M3 route smoke and an
+  opt-in sustained HTTP/storage/projection run. [Validation](docs/testing/m3-lifecycle.md) and
+  [measurements](docs/benchmarks/m3-lifecycle.md) record local passing gates and limitations.
+  M3 is locally verified on its feature branch; publication and CI are pending.
+
 - M2 Go and TypeScript SDKs with bounded non-blocking metadata buffers, background batches,
   generated worker identity, 15 second heartbeats, deadline-bounded Close and worker drop metrics.
 - Authenticated `POST /v1/workers/heartbeat`, migration 0002 and receipt-time worker upserts.
@@ -32,6 +48,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Provided-ID writes use bounded typed-array verification and durable ledger/raw COPY within the
+  original atomic transaction (ADRs 0008–0010); SDK/protocol source and performance budgets are unchanged.
+- `make fmt` uses `go fmt ./...`, excluding ignored compiler fixtures under `bin` from source formatting.
 - The repository is published at https://github.com/Shellghostt/QueueLens and the CI workflow has
   executed. The first run on 2026-11-13 passed the build, test and integration jobs on all three
   operating systems, including `go test -race`; the lint and vulnerability jobs failed on that run
@@ -47,6 +66,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- HTTP ingest preserves omitted producer IDs as unknown instead of generating evidence that was not supplied.
+- Native Windows race validation now passes with MSYS2 UCRT x64 GCC; the old compiler limitation is resolved
+  for the local M3 gates. Setup and exact command are in the validation record.
 - Go SDK outage recovery requires a successful authenticated heartbeat probe before reopening the
   event buffer. Failed collectors no longer trigger repeated batch encoding on every flush tick;
   dropped-event accounting and deadline-bounded shutdown are preserved (ADR 0005).
@@ -62,7 +84,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Planned
 
-- M3: lifecycle folding, stalled/dead-worker classification and retention.
+- M4: dashboard and general job timelines. M5: rollups and alerts. Disk spooling is outside M3 scope.
 
 ## [0.1.0] - 2026-11-13
 
