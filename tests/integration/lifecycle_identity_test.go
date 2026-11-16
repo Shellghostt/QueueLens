@@ -160,3 +160,24 @@ func TestLifecycleConcurrentMigrationsAndIdentityClaims(t *testing.T) {
 		t.Fatalf("concurrent retransmission wrote %d rows", total)
 	}
 }
+
+func TestLifecycleRawCOPYFailureRollsBackLedgerAndReusableWriter(t *testing.T) {
+	f := newLifecycleFixture(t, true)
+	ctx := lifecycleContext(t)
+	mustWrite(t, f, lifecycleEvent(f.now, "before-copy-failure", "before", 1, protocol.StateStarted))
+	valid := lifecycleEvent(f.now, "after-copy-failure", "after", 1, protocol.StateStarted)
+	invalid := lifecycleEvent(f.now, "invalid-copy", "invalid", 1, protocol.State("exploded"))
+	if _, err := f.db.WriteBatch(ctx, []protocol.Event{valid, invalid}); err == nil {
+		t.Fatal("raw CHECK did not reject COPY")
+	}
+	if sqlCount(t, f, "SELECT count(*) FROM queue_events") != 1 ||
+		sqlCount(t, f, "SELECT count(*) FROM event_identities") != 1 {
+		t.Fatal("raw COPY failure left ledger or raw rows committed")
+	}
+	if count := mustWrite(t, f, valid); count != 1 {
+		t.Fatal("pooled writer retained aborted claims")
+	}
+	if sqlCount(t, f, "SELECT count(*) FROM event_identities") != 2 {
+		t.Fatal("successful recovery lost identity")
+	}
+}
