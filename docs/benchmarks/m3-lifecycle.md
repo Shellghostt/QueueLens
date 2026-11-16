@@ -123,3 +123,23 @@ passed with zero allocations on Emit. Each dead-collector run accounted for
 1,010,000 emitted/dropped events, zero sent/rejected/buffered; Go recorded 82
 failed recovery heartbeats and TypeScript one failed heartbeat. These are outage
 overhead results, not healthy SDK throughput or durable delivery measurements.
+
+## Published CI confirmation
+
+At published head `c931b9b`, both push and
+[PR CI](https://github.com/Shellghostt/QueueLens/actions/runs/43822813334) passed
+all eight jobs. The PR SDK job produced these additional million-job results on
+the GitHub runner; they are separate from the local host measurements above.
+
+| SDK | Baseline p50 | SDK p50 | Added p50 | Baseline p99 | SDK p99 | Added p99 |
+|---|---:|---:|---:|---:|---:|---:|
+| Go | 12,353 ns | 12,353 ns | 0% | 19,126 ns | 19,125 ns | -0.005228% |
+| TypeScript | 11,301 ns | 11,321 ns | 0.176975% | 18,806 ns | 18,836 ns | 0.159524% |
+
+The one-nanosecond negative Go delta is measurement noise, not a claim of faster
+jobs. TypeScript sampled 273.212 bytes per successful enqueue. Both runs
+accounted for 1,010,000 emitted/dropped events with zero sent/rejected/buffered;
+Go recorded 102 failed recovery heartbeats and TypeScript one. Budgets and SDK
+source remain unchanged. PR #2 subsequently merged at `12b5940` with an identical
+tree, and all eight [main CI jobs](https://github.com/Shellghostt/QueueLens/actions/runs/43823539904)
+passed. The later changes record publication/merge evidence only.

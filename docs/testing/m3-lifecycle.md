@@ -1,10 +1,13 @@
 # M3 lifecycle validation — 2026-11-16
 
-M3 is implemented and locally verified on `feat/m3-implementation`.
+M3 is complete and merged into `main`, with local and post-merge CI verification.
 Runtime/test source is `728999d4f76f0842800d697131652643556cbe7b`, based on merged M2
 `9ab2ebe6d2795f6af3e03b95658bb163dfb19faf`. The subsequent readiness change is
-documentation only. No QueueLens push, pull request, CI run or merge has occurred.
-Main and branch protection remain unchanged.
+documentation only. [PR #2](https://github.com/Shellghostt/QueueLens/pull/2) merged into `main`
+at `12b59401d5a483e8b88acd5df373da057ca03141`. Its tree exactly matched tested head `c931b9b`.
+Initial push/PR CI and all eight
+[post-merge CI jobs](https://github.com/Shellghostt/QueueLens/actions/runs/43823539904) passed.
+The subsequent revert PR #3 was closed at the user's request. Branch protection was unchanged.
 
 The [current M3 contract](../phases/M3.md) and accepted ADRs
 [0006](../adr/0006-lifecycle-identity-and-retention.md),
@@ -48,6 +51,39 @@ The ordinary test/race/integration commands intentionally skip the opt-in load
 test; `make m3-load` ran it separately on the final source. No regular M3
 integration case was skipped. SDK timing ran on Linux because the documented M2
 method requires its clock resolution. No benchmark workload or budget changed.
+
+## Publication and CI evidence
+
+The user authorized QueueLens publication after the clean local result. Branch
+`feat/m3-implementation` was pushed and PR #2 opened against `main`. At `c931b9b`,
+both the [push run](https://github.com/Shellghostt/QueueLens/actions/runs/43822804924)
+and [pull-request run](https://github.com/Shellghostt/QueueLens/actions/runs/43822813334)
+completed with **success**. Each passed all eight jobs:
+
+- Container image integration, including the new packaged M3 routes.
+- Build/test with race on Ubuntu, Windows and macOS (three jobs).
+- Real PostgreSQL/Redis/BullMQ integration, including the 19 regular M3 cases.
+- SDK conformance, audit and unchanged million-job overhead gates.
+- Lint and vulnerability scan (two jobs).
+
+The PR SDK log confirms actual million-job execution: TypeScript added p50/p99
+0.176975%/0.159524%, sampled 273.212 B/event; Go p50 0%, p99 -0.005228% (one ns
+within measurement noise). Each accounted for all 1,010,000 events as drops with
+no sent/rejected/buffered events. See the additional CI measurements in the
+benchmark report.
+
+The user merged PR #2 before the publication-record update. Verification used
+`git diff --exit-code c931b9b 12b5940` (empty): the merged tree was exactly the
+already tested tree. The [main CI run](https://github.com/Shellghostt/QueueLens/actions/runs/43823539904)
+at `12b5940` also passed all eight jobs, including three-platform race, real
+integration, SDK gates, packaged image, lint and vulnerabilities. No unverified
+runtime changes were introduced by that merge.
+
+[PR #3](https://github.com/Shellghostt/QueueLens/pull/3) was a full revert, whose
+tree matched the M2 baseline `9ab2ebe`. It would remove the M3 implementation,
+migration, tests and evidence rather than reopen the original PR. It was reviewed
+and closed at the user's request; it was not merged. The follow-up changes only
+publication/merge documentation. Branch protection and Docker data were preserved.
 
 ## Native Windows race compiler
 

@@ -1,6 +1,7 @@
 # QueueLens Architecture
 
-**Status: M3 implemented and locally verified on `feat/m3-implementation`; publication/CI pending.**
+**Status: M3 complete and merged into main, with local and post-merge CI verification.**
+[PR #2](https://github.com/Shellghostt/QueueLens/pull/2) merged at `12b5940` with the exact tested M3 tree.
 The collector, BullMQ adapter, both SDKs, producer-identity ledger, bounded job projections,
 failure/stall/worker queries and checked retention exist. SDK/protocol source is unchanged from M2.
 Dashboard, rollup analytics and alerts remain future work. The authoritative specification is
@@ -136,4 +137,7 @@ design.
 
 All local M3 gates are mapped in [validation](testing/m3-lifecycle.md); measured throughput,
 SDK overhead, storage latency and sampling limits are in [measurements](benchmarks/m3-lifecycle.md).
-Native Windows race now passes with x64 GCC. No QueueLens CI run, merge or release is claimed.
+Native Windows race passes with x64 GCC; CI also passed race/build tests on Windows, Ubuntu and macOS.
+Publication/run links are in validation and the
+[post-merge CI run](https://github.com/Shellghostt/QueueLens/actions/runs/43823539904).
+No new tagged release is claimed.

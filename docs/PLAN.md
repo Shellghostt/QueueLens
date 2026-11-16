@@ -24,8 +24,11 @@ updated: 2026-11-16
 
 ## 0. Machine context
 
-M1/M2 are merged into `main`; M3 is **implemented and locally verified** on
-`feat/m3-implementation`, runtime/test source `728999d`. Publication and CI are pending.
+M1–M3 are merged into `main`. M3 is **complete**, runtime/test source `728999d`,
+merged through [PR #2](https://github.com/Shellghostt/QueueLens/pull/2) at `12b5940`.
+The merged tree matched tested head `c931b9b`; all eight
+[post-merge CI jobs](https://github.com/Shellghostt/QueueLens/actions/runs/43823539904) passed,
+including Windows/Ubuntu/macOS race.
 The [M3 requirements](phases/M3.md) are the acceptance contract, with decisions in ADRs 0006–0010.
 [Validation](testing/m3-lifecycle.md) and [measurements](benchmarks/m3-lifecycle.md) record actual gates,
 diagnosed failures and limits. The [development-tool audit](DEVELOPMENT-TOOLS.md) describes optional aids.
@@ -531,7 +534,8 @@ decision in ADR 0004. The benchmark workload and p50/p99 budgets remain unchange
 
 **Deliverable:** durable event identity, `job_runs` folding, evidence-based stall/worker views and raw retention.
 
-Status: **Implemented and locally verified** on the feature branch; publication/CI pending.
+Status: **Complete and merged**, with local and post-merge CI verification;
+[PR #2](https://github.com/Shellghostt/QueueLens/pull/2), merge `12b5940`.
 Evidence is in [M3 validation](testing/m3-lifecycle.md) and
 [measurements](benchmarks/m3-lifecycle.md). The current phase contract and ADR 0006 replace an
 unconditional two-poll claim with bounded replay and explicit lag; backlog can delay source evidence.
@@ -602,12 +606,12 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 | QL-012 | Non-blocking buffer test (dead collector) | QL-010 | M2 | Done |
 | QL-013 | Overhead benchmark and report | QL-012 | M2 | Done |
 | QL-014 | Worker heartbeat endpoint and table | QL-001 | M2 | Done |
-| QL-015A | Persist protocol event identity; define safe checkpoint and legacy-row semantics | QL-008 | M3 | Done locally |
-| QL-015 | Lifecycle folder (events → job_runs) | QL-015A | M3 | Done locally |
-| QL-016 | Out-of-order property test | QL-015 | M3 | Done locally |
-| QL-017 | Observed/suspected stalls and worker-down suspicion | QL-015 | M3 | Done locally |
-| QL-018 | Retention and partition maintenance | QL-008 | M3 | Done locally |
-| QL-018A | Paginated failed/stalled/worker views and API contract | QL-017 | M3 | Done locally |
+| QL-015A | Persist protocol event identity; define safe checkpoint and legacy-row semantics | QL-008 | M3 | Done (merged) |
+| QL-015 | Lifecycle folder (events → job_runs) | QL-015A | M3 | Done (merged) |
+| QL-016 | Out-of-order property test | QL-015 | M3 | Done (merged) |
+| QL-017 | Observed/suspected stalls and worker-down suspicion | QL-015 | M3 | Done (merged) |
+| QL-018 | Retention and partition maintenance | QL-008 | M3 | Done (merged) |
+| QL-018A | Paginated failed/stalled/worker views and API contract | QL-017 | M3 | Done (merged) |
 | QL-019 | Query API: queues and jobs | QL-015 | M4 | Partly done: `GET /v1/queues` exists |
 | QL-020 | Dashboard scaffolding | QL-019 | M4 | Not started |
 | QL-021 | Overview and queue detail views | QL-020 | M4 | Not started |
@@ -670,8 +674,8 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 and persists successful batches atomically in PostgreSQL. The BullMQ adapter reads real queue counts from Redis. The
 Go and TypeScript SDKs emit events and heartbeats; the load generator can drive the collector and
 report what happened. M3 adds retained lifecycle folding, paginated evidence and checked retention.
-There is no dashboard, rollup analytics, alert rule or second adapter. No QueueLens M3 publication,
-CI result or release is claimed.
+There is no dashboard, rollup analytics, alert rule or second adapter.
+M3 is merged through PR #2 with verified post-merge CI; no new tagged release is claimed.
 
 **Rules:**
 
@@ -701,8 +705,9 @@ CI result or release is claimed.
 
 1. Read sections 0, 3 and 9, then section 16.
 2. `make build && ./bin/queuelens version`.
-3. M1/M2 are merged into `main`; M3 is locally verified on `feat/m3-implementation`, with publication/CI
-   pending. Read [M3 requirements](phases/M3.md), ADRs 0006–0010 and the validation/benchmark records.
+3. M1–M3 are merged into `main`; M3 merge `12b5940` exactly matched the tested tree and passed
+   post-merge CI. Read [M3 requirements](phases/M3.md), ADRs 0006–0010 and the validation/benchmark
+   records before subsequent work.
    SDK conformance/heartbeat/recovery remain unchanged regression gates.
 4. Run the overhead benchmark before and after any change to the emit path:
    `make sdk-bench` on Linux for both SDKs, `make bench` for storage and `make loadtest` for ingest.
