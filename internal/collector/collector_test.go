@@ -242,20 +242,28 @@ func TestABatchFailureIsCountedAndDoesNotStopTheWriter(t *testing.T) {
 	}
 }
 
-func TestGeneratedEventIDsAreFilledIn(t *testing.T) {
+func TestOmittedEventIdentityStaysUnknownAndProvidedIdentityIsPreserved(t *testing.T) {
 	metricSet := metrics.New()
-	collector := newTestCollector(&recordingSink{}, Options{BufferSize: 10, BatchSize: 10}, metricSet)
+	sink := &recordingSink{}
+	collector := newTestCollector(sink, Options{BufferSize: 10, BatchSize: 10}, metricSet)
 
 	now := time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
 	result := collector.Ingest(context.Background(), []protocol.Event{{
 		V: protocol.Version, TS: now, Queue: "emails", JobID: "1", State: protocol.StateEnqueued,
+	}, {
+		V: protocol.Version, ID: "producer-event", TS: now, Queue: "emails", JobID: "2", State: protocol.StateEnqueued,
 	}})
 
-	if result.Accepted != 1 {
-		t.Fatalf("expected the event to be accepted, got %d", result.Accepted)
+	if result.Accepted != 2 {
+		t.Fatalf("expected both events to be accepted, got %d", result.Accepted)
 	}
-	if collector.Buffered() != 1 {
-		t.Fatalf("expected one buffered event, got %d", collector.Buffered())
+	if collector.Buffered() != 2 {
+		t.Fatalf("expected two buffered events, got %d", collector.Buffered())
+	}
+	collector.Stop()
+	if len(sink.batches) != 1 || len(sink.batches[0]) != 2 ||
+		sink.batches[0][0].ID != "" || sink.batches[0][1].ID != "producer-event" {
+		t.Fatal("collector invented or replaced producer identity")
 	}
 }
 
