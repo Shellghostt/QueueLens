@@ -3,7 +3,7 @@ info:
   title: QueueLens API
   version: 0.1.0
   description: |
-    Status: M2, unreleased. Only implemented paths appear here.
+    Status: M3, unreleased. Only implemented paths appear here.
     Adding a path before implementing it is treated as a documentation bug.
 
     The collector and the query API share one bearer token. Every path that
@@ -20,6 +20,72 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /v1/jobs/failed:
+    get:
+      summary: Highest-attempt observed failures
+      description: Failure does not prove retry exhaustion. Pages expose missing history and projection lag.
+      parameters:
+        - $ref: '#/components/parameters/JobQueue'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200': { $ref: '#/components/responses/JobPage' }
+        '400': { $ref: '#/components/responses/InvalidPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/QueryUnavailable' }
+  /v1/jobs/stalled:
+    get:
+      summary: Highest-attempt explicit stalled evidence
+      description: Only observed stalled events; worker heartbeat absence does not establish a job stall.
+      parameters:
+        - $ref: '#/components/parameters/JobQueue'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200': { $ref: '#/components/responses/JobPage' }
+        '400': { $ref: '#/components/responses/InvalidPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/QueryUnavailable' }
+  /v1/jobs/suspected-stalled:
+    get:
+      summary: Unresolved jobs with no recent job event receipt
+      description: |
+        Enqueued/started/retried projections with no receipt for QUEUELENS_STALL_AFTER
+        (default 15 minutes). Zero disables this view. Source state remains observed;
+        suspicion has reason no_job_receipt and a threshold. Missing telemetry, long
+        jobs and projection lag remain possible. No expected duration is inferred.
+      parameters:
+        - $ref: '#/components/parameters/JobQueue'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200': { $ref: '#/components/responses/JobPage' }
+        '400': { $ref: '#/components/responses/InvalidPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/QueryUnavailable' }
+  /v1/workers:
+    get:
+      summary: Paginated receipt-based worker liveness evidence
+      description: |
+        Suspected down at 60 seconds without a server receipt, evaluated on UTC
+        ticks (default 5 seconds, configurable 1 second–1 minute). Detection is
+        visible on the next query at an eligible tick; no background notification
+        is promised. Future receipts remain alive with receipt age zero.
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+        - name: status
+          in: query
+          schema: { type: string, enum: [all, suspected_down], default: all }
+      responses:
+        '200':
+          description: Worker evidence at the cursor's fixed evaluation time
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerPage' }
+        '400': { $ref: '#/components/responses/InvalidPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/QueryUnavailable' }
   /v1/workers/heartbeat:
     post:
       summary: Persist worker liveness using collector receipt time
@@ -167,11 +233,183 @@ paths:
               schema:
                 type: string
 components:
+  parameters:
+    JobQueue:
+      name: queue
+      in: query
+      description: Optional exact queue filter, at most 256 UTF-8 bytes
+      schema: { type: string, minLength: 1, maxLength: 256 }
+    PageLimit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 100 }
+    PageCursor:
+      name: cursor
+      in: query
+      description: |
+        Opaque signed keyset cursor bound to route, filter and evaluation time.
+        Jobs order by queue/job ID, workers by worker ID, using C collation.
+        This is a live list: concurrent changes can alter membership between pages.
+        Changing the admin token invalidates cursors.
+      schema: { type: string, maxLength: 4096 }
+  responses:
+    JobPage:
+      description: Bounded observed evidence with live-row consistency and history limitations
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/JobPage' }
+    InvalidPage:
+      description: Invalid limit, filter, cursor or cursor scope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/QueryError' }
+    Unauthorized:
+      description: Missing or invalid bearer token
+    QueryUnavailable:
+      description: Query storage unavailable or finite deadline exceeded
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/QueryError' }
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
   schemas:
+    QueryError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    ProjectionLag:
+      type: object
+      required: [known, pending_rows, pending_rows_lower_bound, sample_limit, sample_capped,
+        oldest_pending_receipt, lag_seconds, pruning_runs_lower_bound, pruning_sample_capped,
+        last_batch_at, last_scan_at]
+      description: |
+        At most 1,000 committed pending receipts and 1,000 pruning keys are read in
+        a bounded consistent transaction. Capped samples are lower bounds, not exact
+        counts. Unknown/timed-out evidence has known=false and nullable measurements;
+        its zero lower bounds do not establish that work is complete.
+      properties:
+        known: { type: boolean }
+        pending_rows: { type: [integer, 'null'], minimum: 0 }
+        pending_rows_lower_bound: { type: integer, minimum: 0, maximum: 1000 }
+        sample_limit: { type: integer, const: 1000 }
+        sample_capped: { type: boolean }
+        oldest_pending_receipt: { type: [string, 'null'], format: date-time }
+        lag_seconds: { type: [number, 'null'], minimum: 0 }
+        pruning_runs_lower_bound: { type: integer, minimum: 0, maximum: 1000 }
+        pruning_sample_capped: { type: boolean }
+        last_batch_at: { type: [string, 'null'], format: date-time }
+        last_scan_at: { type: [string, 'null'], format: date-time }
+        reason: { type: string }
+    PageEvidence:
+      type: object
+      required: [evaluated_at, history_from, projection_lag, consistency, limitations]
+      properties:
+        evaluated_at: { type: string, format: date-time }
+        history_from:
+          type: string
+          format: date-time
+          description: Evaluation time minus configured receipt history window
+        projection_lag: { $ref: '#/components/schemas/ProjectionLag' }
+        consistency: { type: string, const: live_row_keyset }
+        limitations:
+          type: array
+          items: { type: string }
+    HistoryEvidence:
+      type: object
+      required: [complete_history, missing_enqueued, missing_started, missing_terminal,
+        legacy_identity, missing_identity, pruned_history, conflicting_terminal,
+        possible_job_id_reuse_or_clock_disagreement, incomplete_attempts]
+      properties:
+        complete_history: { type: boolean, const: false }
+        missing_enqueued: { type: boolean }
+        missing_started: { type: boolean }
+        missing_terminal: { type: boolean }
+        legacy_identity: { type: boolean }
+        missing_identity: { type: boolean }
+        pruned_history: { type: boolean }
+        conflicting_terminal: { type: boolean }
+        possible_job_id_reuse_or_clock_disagreement: { type: boolean }
+        incomplete_attempts: { type: integer, minimum: 0 }
+    Suspicion:
+      type: object
+      required: [reason, threshold_seconds]
+      properties:
+        reason: { type: string, enum: [no_job_receipt, no_worker_receipt] }
+        threshold_seconds: { type: number, minimum: 0 }
+    JobItem:
+      type: object
+      required: [queue, job_id, attempt, observed_attempts, state, state_evidence, state_at,
+        source_states, enqueued_at, started_at, duration_ms, duration_kind,
+        first_event_at, last_event_at, first_receipt_at, last_receipt_at,
+        retry_exhausted, history, suspicion]
+      properties:
+        queue: { type: string }
+        job_id: { type: string }
+        job_name: { type: string }
+        worker_id: { type: string }
+        attempt: { type: integer, minimum: 1, maximum: 32767 }
+        observed_attempts: { type: integer, minimum: 1, maximum: 32767 }
+        state: { type: string, enum: [enqueued, started, completed, failed, retried, stalled] }
+        state_evidence: { type: string, const: observed }
+        state_at: { type: string, format: date-time }
+        source_states:
+          type: array
+          uniqueItems: true
+          description: Observed states of the selected reported attempt
+          items: { type: string, enum: [enqueued, started, completed, failed, retried, stalled] }
+        enqueued_at: { type: [string, 'null'], format: date-time }
+        started_at: { type: [string, 'null'], format: date-time }
+        duration_ms:
+          type: [integer, 'null']
+          minimum: 0
+          description: Selected completed/failed event's supplied attempt duration; never timestamp subtraction
+        duration_kind: { type: string, enum: [unknown, producer_reported_attempt] }
+        error: { type: string }
+        first_event_at: { type: string, format: date-time }
+        last_event_at: { type: string, format: date-time }
+        first_receipt_at: { type: string, format: date-time }
+        last_receipt_at: { type: string, format: date-time }
+        retry_exhausted: { type: 'null', description: Protocol v1 has no retry-exhaustion evidence }
+        history: { $ref: '#/components/schemas/HistoryEvidence' }
+        suspicion:
+          anyOf: [{ $ref: '#/components/schemas/Suspicion' }, { type: 'null' }]
+    JobPage:
+      allOf:
+        - $ref: '#/components/schemas/PageEvidence'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              maxItems: 200
+              items: { $ref: '#/components/schemas/JobItem' }
+            next_cursor: { type: string, maxLength: 4096 }
+    WorkerItem:
+      type: object
+      required: [worker_id, pool, first_seen, last_seen, receipt_age_seconds, status, suspicion]
+      properties:
+        worker_id: { type: string }
+        pool: { type: string }
+        first_seen: { type: string, format: date-time }
+        last_seen: { type: string, format: date-time }
+        receipt_age_seconds: { type: number, minimum: 0 }
+        status: { type: string, enum: [alive, suspected_down] }
+        suspicion:
+          anyOf: [{ $ref: '#/components/schemas/Suspicion' }, { type: 'null' }]
+    WorkerPage:
+      allOf:
+        - $ref: '#/components/schemas/PageEvidence'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              maxItems: 200
+              items: { $ref: '#/components/schemas/WorkerItem' }
+            next_cursor: { type: string, maxLength: 4096 }
     Heartbeat:
       type: object
       required: [v, worker_id]
@@ -198,7 +436,11 @@ components:
           description: The protocol version. Only 1 is accepted.
         id:
           type: string
-          description: The event identifier. Generated by the collector when it is omitted.
+          description: |
+            Optional producer identity, scoped to queue. Omission stays unknown.
+            Identical retained identities are storage no-ops; different normalized
+            content under one identity rolls back the asynchronous storage batch.
+            HTTP acceptance describes buffering, not database durability.
         ts:
           type: string
           format: date-time

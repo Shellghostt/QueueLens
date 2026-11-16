@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shellghostt/queuelens/internal/lifecycle"
 )
 
 // Environment variable names.
@@ -18,16 +20,23 @@ import (
 // the QUELENS_ spelling is accepted as an alias, because the plan is the
 // specification and a tool that ignores its own spec is a bug. See ADR 0002.
 const (
-	EnvHTTPAddr    = "QUEUELENS_HTTP_ADDR"
-	EnvPostgresDSN = "QUEUELENS_POSTGRES_DSN"
-	EnvRedisURL    = "QUEUELENS_REDIS_URL"
-	EnvAdminToken  = "QUEUELENS_ADMIN_TOKEN"
-	EnvAdapters    = "QUEUELENS_ADAPTERS"
-	EnvPollInt     = "QUEUELENS_POLL_INTERVAL"
-	EnvBufferSize  = "QUEUELENS_BUFFER_SIZE"
-	EnvBatchSize   = "QUEUELENS_BATCH_SIZE"
-	EnvLogLevel    = "QUEUELENS_LOG_LEVEL"
-	EnvFlushInt    = "QUEUELENS_FLUSH_INTERVAL"
+	EnvHTTPAddr         = "QUEUELENS_HTTP_ADDR"
+	EnvPostgresDSN      = "QUEUELENS_POSTGRES_DSN"
+	EnvRedisURL         = "QUEUELENS_REDIS_URL"
+	EnvAdminToken       = "QUEUELENS_ADMIN_TOKEN"
+	EnvAdapters         = "QUEUELENS_ADAPTERS"
+	EnvPollInt          = "QUEUELENS_POLL_INTERVAL"
+	EnvBufferSize       = "QUEUELENS_BUFFER_SIZE"
+	EnvBatchSize        = "QUEUELENS_BATCH_SIZE"
+	EnvLogLevel         = "QUEUELENS_LOG_LEVEL"
+	EnvFlushInt         = "QUEUELENS_FLUSH_INTERVAL"
+	EnvRawRetention     = "QUEUELENS_RETENTION_RAW_DAYS"
+	EnvHistoryRetention = "QUEUELENS_RETENTION_HISTORY_DAYS"
+	EnvStallAfter       = "QUEUELENS_STALL_AFTER"
+	EnvEvaluationInt    = "QUEUELENS_EVALUATION_INTERVAL"
+	EnvMaintenanceInt   = "QUEUELENS_MAINTENANCE_INTERVAL"
+	EnvProjectionInt    = "QUEUELENS_PROJECTION_INTERVAL"
+	EnvProjectionBatch  = "QUEUELENS_PROJECTION_BATCH_SIZE"
 )
 
 // Aliases kept for compatibility with the plan's spelling.
@@ -71,6 +80,7 @@ type Config struct {
 	BatchSize   int
 	FlushEvery  time.Duration
 	LogLevel    string
+	Lifecycle   lifecycle.Policy
 }
 
 // Error is a configuration problem. It is a usage error, not a runtime one.
@@ -134,6 +144,7 @@ func LoadFrom(environ []string) (Config, error) {
 		BatchSize:  DefaultBatchSize,
 		FlushEvery: DefaultFlushInt,
 		LogLevel:   DefaultLogLevel,
+		Lifecycle:  lifecycle.DefaultPolicy(),
 	}
 
 	if value, ok := lookup(env, EnvHTTPAddr, aliasHTTPAddr); ok {
@@ -184,6 +195,9 @@ func LoadFrom(environ []string) (Config, error) {
 		cfg.FlushEvery = parsed
 	}
 
+	if err := loadLifecycle(env, &cfg.Lifecycle); err != nil {
+		return Config{}, err
+	}
 	if cfg.PostgresDSN == "" {
 		return Config{}, &Error{Problem: fmt.Sprintf("%s is required", EnvPostgresDSN)}
 	}
@@ -208,6 +222,49 @@ func LoadFrom(environ []string) (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+func loadLifecycle(env map[string]string, policy *lifecycle.Policy) error {
+	for _, field := range []struct {
+		name        string
+		destination *time.Duration
+	}{
+		{EnvRawRetention, &policy.RawRetention}, {EnvHistoryRetention, &policy.HistoryRetention},
+	} {
+		if value, ok := lookup(env, field.name, strings.Replace(field.name, "QUEUELENS_", "QUELENS_", 1)); ok {
+			days, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || days < 1 || days > int64((1<<63-1)/(24*time.Hour)) {
+				return &Error{Problem: field.name + " must be a positive number of days within the duration range"}
+			}
+			*field.destination = time.Duration(days) * 24 * time.Hour
+		}
+	}
+	for _, field := range []struct {
+		name        string
+		destination *time.Duration
+	}{
+		{EnvStallAfter, &policy.StallAfter}, {EnvEvaluationInt, &policy.EvaluationEvery},
+		{EnvMaintenanceInt, &policy.MaintenanceEvery}, {EnvProjectionInt, &policy.PollEvery},
+	} {
+		if value, ok := lookup(env, field.name, strings.Replace(field.name, "QUEUELENS_", "QUELENS_", 1)); ok {
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return &Error{Problem: field.name + " must be a duration"}
+			}
+			*field.destination = parsed
+		}
+	}
+	if value, ok := lookup(env, EnvProjectionBatch, "QUELENS_PROJECTION_BATCH_SIZE"); ok {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return &Error{Problem: EnvProjectionBatch + " must be an integer"}
+		}
+		policy.BatchSize = parsed
+	}
+	if err := policy.Validate(); err != nil {
+		return &Error{Problem: err.Error()}
+	}
+	return nil
 }
 
 func splitList(value string) []string {

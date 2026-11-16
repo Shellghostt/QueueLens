@@ -103,6 +103,38 @@ curl --fail --silent --show-error -H "Authorization: Bearer $token" "$url/v1/que
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert any(q["queue"]=="image-smoke" and q["waiting"]==1 and not q["stale"] for q in d["queues"]), d' <"$work/queues.json"
 curl --fail --silent --show-error "$url/metrics" >"$work/metrics.txt"
 grep -q '^queuelens_heartbeats_accepted_total 1' "$work/metrics.txt"
+
+# M3 must also work through the packaged runtime's projector and query wiring.
+for path in jobs/failed jobs/stalled jobs/suspected-stalled workers; do
+  [[ $(curl --silent --max-time 5 --output /dev/null --write-out '%{http_code}' \
+    "$url/v1/$path") == 401 ]]
+done
+[[ $(curl --silent --max-time 5 --output "$work/lifecycle-events.json" --write-out '%{http_code}' \
+  -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+  --data "[{\"v\":1,\"id\":\"image-failure-event\",\"ts\":\"$timestamp\",\"queue\":\"image-smoke\",\"job_id\":\"image-failed\",\"state\":\"failed\"},{\"v\":1,\"id\":\"image-stall-event\",\"ts\":\"$timestamp\",\"queue\":\"image-smoke\",\"job_id\":\"image-stalled\",\"state\":\"stalled\"}]" \
+  "$url/v1/events") == 202 ]]
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["accepted"]==2 and d["dropped"]==0 and not d["rejected"], d' <"$work/lifecycle-events.json"
+projected=false
+for (( i=0; i<30; i++ )); do
+  count=$(docker exec "$postgres" psql -U queuelens -Atc \
+    "SELECT count(*) FROM job_runs WHERE queue='image-smoke' AND ((job_id='image-failed' AND state='failed') OR (job_id='image-stalled' AND state='stalled'))")
+  if [[ $count == 2 ]]; then projected=true; break; fi
+  sleep 1
+done
+[[ $projected == true ]]
+[[ $(docker exec "$postgres" psql -U queuelens -Atc \
+  "SELECT count(*) FROM queue_events WHERE job_id='image-job' AND event_id IS NULL AND identity_kind='missing'") == 1 ]]
+for state in failed stalled; do
+  curl --fail --silent --show-error --max-time 5 -H "Authorization: Bearer $token" \
+    "$url/v1/jobs/$state?queue=image-smoke&limit=1" >"$work/$state.json"
+  python3 -c 'import json,sys; d=json.load(sys.stdin); item=d["items"][0]; assert len(d["items"])==1 and item["state"]==sys.argv[1] and item["state_evidence"]=="observed" and item["retry_exhausted"] is None and not item["history"]["complete_history"] and d["projection_lag"]["known"], d' "$state" <"$work/$state.json"
+done
+curl --fail --silent --show-error --max-time 5 -H "Authorization: Bearer $token" \
+  "$url/v1/jobs/suspected-stalled?queue=image-smoke" >"$work/suspected.json"
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["items"]==[], d' <"$work/suspected.json"
+curl --fail --silent --show-error --max-time 5 -H "Authorization: Bearer $token" \
+  "$url/v1/workers?limit=1" >"$work/workers.json"
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert len(d["items"])==1 and d["items"][0]["worker_id"]=="image-worker" and d["items"][0]["status"]=="alive", d' <"$work/workers.json"
 docker stop --time 10 "$collector" >/dev/null
 [[ $(docker inspect --format '{{.State.ExitCode}}' "$collector") == 0 ]]
-printf 'QueueLens container: nonroot/read-only startup, migrations, Redis polling, auth, events, heartbeats and shutdown passed.\n'
+printf 'QueueLens container: nonroot/read-only startup, migrations, Redis polling, auth, identity, lifecycle projection/query routes, heartbeats and shutdown passed.\n'
