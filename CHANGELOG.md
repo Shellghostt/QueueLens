@@ -9,6 +9,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- [M3 requirements](docs/phases/M3.md) with phase boundaries, failure cases, ADR prerequisites and
+  acceptance gates, plus a [development-tool audit](docs/DEVELOPMENT-TOOLS.md). M3 is not implemented.
+
 - M2 Go and TypeScript SDKs with bounded non-blocking metadata buffers, background batches,
   generated worker identity, 15 second heartbeats, deadline-bounded Close and worker drop metrics.
 - Authenticated `POST /v1/workers/heartbeat`, migration 0002 and receipt-time worker upserts.

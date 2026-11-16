@@ -24,6 +24,12 @@ updated: 2026-11-14
 
 ## 0. Machine context
 
+M2 is complete and merged into `main`; M3 is **Not started**. The
+[M3 requirements](phases/M3.md) clarify this plan's next phase and its acceptance gates.
+Resolve the listed ADR decisions before dependent implementation. The
+[development-tool audit](DEVELOPMENT-TOOLS.md) records actual coverage and profiling limits.
+This preparation changes documentation only; it does not establish any M3 behavior or release.
+
 ```yaml
 project: QueueLens
 status: mvp
@@ -192,7 +198,7 @@ Two ingestion paths exist and they are not equivalent:
 2. **Pull (adapter)** — QueueLens polls the broker. Works with no code change, cannot see in-job timing.
 
 M1 shipped the pull path and ingest endpoint. M2 adds SDK push instrumentation with explicit duration
-metadata. SDKs remain unpublished source on the feature branch.
+metadata. SDK source is merged into `main`; this is not a claim of an npm/Go package release.
 
 ---
 
@@ -268,8 +274,13 @@ CREATE TABLE alerts_fired (
 );
 ```
 
-Rules: monthly partitions created two months ahead; raw events retained 30 days by default; rollups retained
-400 days; `job_runs` pruned when finished and older than 30 days.
+Planned M3: current and next two monthly partitions; raw events/history retained at least 30 days by default.
+Drop a month only when its entire upper bound is expired; coarse retention can keep older rows for almost
+one extra month. Projection lag and late events require safeguards. Rollups/400-day retention remain M5.
+See [M3 requirements](phases/M3.md) for pruning and identity/checkpoint prerequisites.
+
+Important M2 gap: `protocol.Event.ID` is not stored by `WriteBatch`; raw `id` is a generated database key.
+M3 must persist new event IDs with a backward-compatible migration before claiming retransmission deduplication.
 
 ---
 
@@ -357,28 +368,27 @@ TypeScript's successful enqueue allocation is sampled using Node's heap profiler
 measured in M1: a 1,000-event batch takes 3.18 ms at p50 and 5.41 ms at p99 end to end over HTTP on
 loopback, and the storage write of 1,000 rows takes 7.51 ms against a local PostgreSQL 16 server. The
 budget is 50 ms. The measurements, the hardware and the method are in
-[docs/benchmarks/m1-ingest-5000eps.md](docs/benchmarks/m1-ingest-5000eps.md).
+[benchmarks/m1-ingest-5000eps.md](benchmarks/m1-ingest-5000eps.md).
 
 ### Lifecycle reconstruction
 
-For each job, events are folded in `ts` order:
-
-- `enqueued` sets `enqueued_at`
-- `started` sets `started_at`, increments `attempts`
-- `completed` sets `finished_at`, `final_state = completed`
-- `failed` sets `last_error`; `final_state` becomes `failed` unless a later `retried` arrives
-- out-of-order events are tolerated: state transitions are idempotent and monotonic
+Planned M3 folding requires persistent identity, explicit attempt/tie/state precedence and a restart-safe
+checkpoint. Timestamp order alone is insufficient; duplicated `started` events cannot increment attempts.
+Late lower-attempt events cannot overwrite a newer attempt. Missing events leave unknown timings/history;
+queue-level `drained` is not a job transition. Define job-ID reuse and contradictory-event behavior in an ADR.
+See [M3 requirements](phases/M3.md); no lifecycle projection exists in the current implementation.
 
 ### Stall detection
 
 | Condition | Verdict |
 |---|---|
-| `waiting` job with no `started` event for > 10 min | stalled queue |
-| `active` job with no heartbeat for > 2 × expected duration | stalled job |
-| Worker with `last_seen` > 60 s | worker down |
-| `job_runs` row with `attempts = max_attempts` and `final_state = failed` | dead job |
+| Explicit `stalled` event | Observed stall evidence |
+| No progress beyond an explicitly configured threshold | Suspected stall; missing telemetry remains possible |
+| No worker receipt-time heartbeat for 60 s | Suspected worker down, visible on the next evaluation tick |
+| `failed` event without retry-exhaustion evidence | Observed failure, not proof of terminal/dead job |
 
-Thresholds are configurable but the defaults are documented and tested.
+The protocol has no job heartbeat, expected duration or `max_attempts`. Do not infer them from worker
+liveness. Thresholds/evaluation cadence and evidence labels must be documented and tested in M3.
 
 ---
 
@@ -405,7 +415,7 @@ wins when both are set. Two variables the plan does not list are implemented as 
 `QUEUELENS_FLUSH_INTERVAL` is the maximum time an event waits in the buffer (default 250 ms).
 
 `QUELENS_RETENTION_RAW_DAYS` and `QUELENS_RETENTION_ROLLUP_DAYS` are **not implemented**: retention is
-M3 work, and there are no rollup tables yet. The collector does not read those variables today, and
+M3/M5 work respectively, and there are no rollup tables yet. The collector does not read those variables today, and
 nothing in this release claims that data is deleted.
 
 ---
@@ -429,7 +439,7 @@ Status note: the five-minute run was measured on 2026-11-13 with the collector p
 processors of an AMD Ryzen 5 5600H: 1,500,000 events accepted at 4,999.99 events/s, p50 request
 latency 1.17 ms, p99 2.50 ms, zero drops, zero rejected events, zero failed writes. The hardware, the
 method and what the run does not prove are in
-[docs/benchmarks/m1-ingest-5000eps.md](docs/benchmarks/m1-ingest-5000eps.md). The BullMQ counts are
+[benchmarks/m1-ingest-5000eps.md](benchmarks/m1-ingest-5000eps.md). The BullMQ counts are
 checked against a real BullMQ 6.7.6 queue seeded by the committed fixture in
 `tests/integration/bullmq`, not against a hand-written Redis fixture. The integration suite passes
 locally against PostgreSQL 16.16 and Redis 7.2.17, and the CI workflow defines the same environment:
@@ -473,15 +483,19 @@ decision in ADR 0004. The benchmark workload and p50/p99 budgets remain unchange
 
 ### M3 — Lifecycle and failure analysis
 
-**Deliverable:** `job_runs` folding, stall detection, failed/stalled views, retention job.
+**Deliverable:** durable event identity, `job_runs` folding, evidence-based stall/worker views and raw retention.
+
+Status: **Not started**. Follow [M3 requirements](phases/M3.md), starting with identity and checkpoint decisions.
 
 **Acceptance criteria**
 
 - [ ] Out-of-order events fold into the correct final state (property test with shuffled input)
-- [ ] Stalled job detected within 2 poll intervals
-- [ ] Dead worker flagged within 60 s of last heartbeat
-- [ ] Retention job drops partitions older than configured days
+- [ ] Explicit stall evidence is projected within 2 poll intervals; suspected stalls are labeled separately
+- [ ] Worker-down suspicion appears after the 60 s threshold, within one evaluation interval
+- [ ] Retention drops only fully expired partitions, preserving unexpired and unprocessed evidence
 - [ ] Partition creation covers the next two months automatically
+- [ ] Identity migration, duplicate/conflicting IDs and concurrent-commit checkpoint recovery pass
+- [ ] Paginated authenticated failure/stall/worker views expose lag and incomplete-history limitations
 
 ### M4 — Dashboard
 
@@ -539,10 +553,12 @@ decision in ADR 0004. The benchmark workload and p50/p99 budgets remain unchange
 | QL-012 | Non-blocking buffer test (dead collector) | QL-010 | M2 | Done |
 | QL-013 | Overhead benchmark and report | QL-012 | M2 | Done |
 | QL-014 | Worker heartbeat endpoint and table | QL-001 | M2 | Done |
-| QL-015 | Lifecycle folder (events → job_runs) | QL-008 | M3 | Not started |
+| QL-015A | Persist protocol event identity; define safe checkpoint and legacy-row semantics | QL-008 | M3 | Not started |
+| QL-015 | Lifecycle folder (events → job_runs) | QL-015A | M3 | Not started |
 | QL-016 | Out-of-order property test | QL-015 | M3 | Not started |
 | QL-017 | Stall and dead-worker detection | QL-015 | M3 | Not started |
 | QL-018 | Retention and partition maintenance | QL-008 | M3 | Not started |
+| QL-018A | Paginated failed/stalled/worker views and API contract | QL-017 | M3 | Not started |
 | QL-019 | Query API: queues and jobs | QL-015 | M4 | Partly done: `GET /v1/queues` exists |
 | QL-020 | Dashboard scaffolding | QL-019 | M4 | Not started |
 | QL-021 | Overview and queue detail views | QL-020 | M4 | Not started |
@@ -634,8 +650,8 @@ report what happened. There is no lifecycle folding, dashboard, alert rule or se
 
 1. Read sections 0, 3 and 9, then section 16.
 2. `make build && ./bin/queuelens version`.
-3. M1 is tagged and M2 is implemented on the feature branch. The next milestone is M3, starting
-   with QL-015 lifecycle folding. Shared SDK conformance and heartbeat integration remain regression gates.
+3. M1/M2 are merged into `main`. Read [M3 requirements](phases/M3.md), starting with QL-015A identity
+   and safe checkpointing before QL-015 folding. SDK conformance/heartbeat/recovery remain regression gates.
 4. Run the overhead benchmark before and after any change to the emit path:
    `make sdk-bench` on Linux for both SDKs, `make bench` for storage and `make loadtest` for ingest.
 5. Never add an adapter without the conformance suite.

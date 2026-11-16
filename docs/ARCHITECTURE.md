@@ -1,6 +1,6 @@
 # QueueLens Architecture
 
-**Status: M2 implemented, unreleased.** The collector, BullMQ adapter, raw event storage, Go and
+**Status: M2 complete and merged into main.** The collector, BullMQ adapter, raw event storage, Go and
 TypeScript SDKs, worker heartbeat storage and load generator exist. Both SDKs are tested through
 HTTP against PostgreSQL, and queue collection against real Redis/BullMQ. The analytics
 engine, dashboard and alert manager do not exist yet. The authoritative
@@ -77,7 +77,7 @@ server receipt time. Worker-down classification remains M3. See ADR 0004 for the
 | Failure | What happens |
 |---|---|
 | Redis is unreachable | The adapter poll fails, the error is counted, the last known queue state stays available and is marked `stale`. The collector keeps serving. |
-| PostgreSQL is unreachable | The readiness check fails, batch writes are counted as errors, the events in the failed batch are lost. There is no disk queue in M1; that is M3 work. |
+| PostgreSQL is unreachable | Readiness fails, batch writes are counted as errors and failed-batch events are lost. Transport is best effort; a disk queue is not in M3 scope. |
 | The buffer is full | The newest events are dropped, `queuelens_buffer_dropped_total` goes up, and the request that hit the limit gets 429 with `Retry-After: 1`. |
 | Collector unreachable from SDK | Transport drops are counted in worker `queuelens_dropped_total`; jobs continue and failed events are not retried. Go discards queued/new events until an authenticated recovery heartbeat succeeds; flush ticks probe without reopening event encoding. |
 | SDK buffer full | Newest events are dropped and counted immediately. |
@@ -94,3 +94,8 @@ failure behaviour of each stage.
 
 See [PLAN.md](PLAN.md) section 4 (non-goals). If a component is not on that diagram, it is not part of the
 design.
+
+## M3 preparation
+
+M3 is **Not started**. Read [phase requirements](phases/M3.md) for planned contracts,
+ADR decisions and acceptance gates, and [development tools](DEVELOPMENT-TOOLS.md) for actual coverage.

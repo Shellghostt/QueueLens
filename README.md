@@ -6,7 +6,7 @@
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
 
-**Status: M2 implemented on the feature branch (unreleased).** QueueLens reads queue state from a broker,
+**Status: M2 complete and merged into main.** QueueLens reads queue state from a broker,
 accepts job lifecycle events from Go and TypeScript workers and stores events and heartbeats in
 PostgreSQL. **It does not analyse anything yet**: there is no lifecycle
 reconstruction, no stall detection, no dashboard and no alert rule. What exists is the part that
@@ -223,10 +223,13 @@ the database shared the same host, so this is a local measurement, not a cloud o
 
 ## Roadmap
 
+M3 is **Not started**. Read the [M3 requirements and acceptance gates](docs/phases/M3.md)
+before implementation and the [development-tool audit](docs/DEVELOPMENT-TOOLS.md) before debugging.
+
 | Milestone | Deliverable | Status |
 |---|---|---|
 | M1 | Adapter interface, Redis adapter and event collection | **Done** (v0.1.0) |
-| M2 | Worker instrumentation and heartbeat storage | **Done**, unreleased |
+| M2 | Worker instrumentation and heartbeat storage | **Done (merged)** |
 | M3 | Job lifecycle tracking, failed and stalled detection | Not started |
 | M4 | Dashboard with queue state and job timelines | Not started |
 | M5 | Metrics, alerting and retry analysis | Not started |
