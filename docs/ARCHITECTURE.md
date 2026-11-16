@@ -1,10 +1,11 @@
 # QueueLens Architecture
 
-**Status: M2 complete and merged into main.** The collector, BullMQ adapter, raw event storage, Go and
-TypeScript SDKs, worker heartbeat storage and load generator exist. Both SDKs are tested through
-HTTP against PostgreSQL, and queue collection against real Redis/BullMQ. The analytics
-engine, dashboard and alert manager do not exist yet. The authoritative
-specification is [PLAN.md](PLAN.md), and section 0 there is the current truth.
+**Status: M3 implemented and locally verified on `feat/m3-implementation`; publication/CI pending.**
+The collector, BullMQ adapter, both SDKs, producer-identity ledger, bounded job projections,
+failure/stall/worker queries and checked retention exist. SDK/protocol source is unchanged from M2.
+Dashboard, rollup analytics and alerts remain future work. The authoritative specification is
+[PLAN.md](PLAN.md), [M3 requirements](phases/M3.md) and accepted ADRs; verification is in
+[M3 validation](testing/m3-lifecycle.md).
 
 ## Context
 
@@ -14,7 +15,7 @@ Background jobs fail quietly. A queue drains, retries pile up, a worker goes sta
 signal is a customer complaint. Existing APM tools treat jobs as traces, not as work. QueueLens models the
 job lifecycle directly: enqueued, started, retried, failed, stalled, completed.
 
-## Shape
+## Planned product shape
 
 ```mermaid
 flowchart LR
@@ -42,7 +43,10 @@ flowchart LR
     BUF --> PG[(PostgreSQL, range partitioned)]
     QV --> API[HTTP API]
     COL --> API
-    PG -.->|M3| ANA
+    PG --> FOLD[bounded lifecycle projector]
+    FOLD --> RUN[(job_runs / job_attempts)]
+    RUN --> API
+    WK --> API
 ```
 
 | Package | Responsibility |
@@ -53,9 +57,10 @@ flowchart LR
 | `internal/poller` | Drives the adapters on a fixed interval. A failing adapter is isolated: the error is counted, the last known state is kept and marked stale, the poller keeps running. |
 | `internal/queues` | The last known state of every queue, in memory. It is a live view of the broker, not history. |
 | `internal/collector` | Validate, redact, buffer, batch. No business logic, no unbounded buffering: a full buffer drops the newest events, counts them and answers 429. |
-| `internal/store` | Writes batches to PostgreSQL with `COPY` into a range-partitioned table. |
+| `internal/store` | Atomic identity verification and durable COPY; bounded projector, paginated queries, checked partition maintenance and retention. |
+| `internal/lifecycle` | Pure deterministic attempt summaries, evidence response types and receipt-based suspicion policy. |
 | `sdk/go`, `sdk/typescript` | Bounded asynchronous metadata transport, batching, heartbeats and worker drop counters. |
-| `internal/api` | The HTTP endpoints: ingest, queue list, health, readiness, metrics. |
+| `internal/api` | Authenticated ingest, heartbeat, queue list and four paginated lifecycle/worker routes; operational endpoints. |
 | `internal/loadgen` | The load generator, so that throughput claims come from a measurement. |
 | `internal/metrics` | The collector's counters, in the Prometheus text format. Plain atomics, no client library: instrumentation must not eat the overhead budget. |
 
@@ -70,7 +75,37 @@ Two ingestion paths exist and they are not equivalent:
 The SDK copies metadata on Emit and performs network work in a background goroutine or scheduled
 task. Default capacity is 10,000, batch size 500, flush interval 250 ms and HTTP deadline two seconds.
 Slow requests may delay flushes; Emit stays independent. Heartbeats default to 15 seconds and persist
-server receipt time. Worker-down classification remains M3. See ADR 0004 for the wire and delivery contract.
+server receipt time. Worker suspicion is evaluated on UTC query ticks after 60 seconds without
+a receipt, default five-second cadence. This does not prove worker/job death. See ADR 0004 for
+the unchanged wire/delivery contract and ADR 0006 for evidence policy.
+
+## Lifecycle transactions and retention
+
+New provided event IDs are scoped to their queue and persisted with a fixed digest key and normalized
+content fingerprint. Under schema-scoped retention/claims locks, one bounded array query verifies
+identities, then new ledger and raw rows COPY and commit together. Identical retained IDs are no-ops;
+conflicts reject the batch. Missing/legacy IDs remain unknown. Source timestamp text preserves
+nanoseconds despite PostgreSQL's microsecond timestamp precision.
+
+The projector visits one checked partition and at most 1,000 pending `(ts,id)` rows per transaction.
+Attempt/run updates and exact row processing markers commit together. Its persisted round-robin
+cursor revisits partitions, including lower sequence IDs committed late. The highest observed attempt
+wins, with same-attempt precedence `completed > retried > failed > stalled > started > enqueued`;
+timestamp/fingerprint settle ties. Summaries retain distinct observed attempts and contradictory,
+missing, legacy and possible-reuse evidence. Missing duration stays unknown.
+
+Queries use C-order keyset pagination (100 default, 200 maximum) and signed cursors bound to route,
+filter and evaluation time. Lag is a bounded committed-row sample; timeout is unknown. This is a live
+view, not a cross-request snapshot or proof of complete history.
+
+Maintenance creates current/next two UTC months and the needed late-arrival month. It visits at most
+eight partitions and bounds each cleanup category to 1,000 rows. A partition drop requires checked
+name/parent/calendar bounds, expired bounds and receipts, no pending facts, finite locks and no
+`CASCADE`. Raw/history defaults are 30 days. Durable pruning phases handle runs with more than
+1,000 attempts; pruning runs are temporarily omitted from pages, pending fresh facts wait for cleanup,
+and reconstruction carries a retained tombstone flag.
+Unresolved/incomplete runs have an absolute age cap, so long jobs can lose projected history.
+The complete policies and refinements are in ADRs 0006–0010.
 
 ## Failure behaviour
 
@@ -82,8 +117,10 @@ server receipt time. Worker-down classification remains M3. See ADR 0004 for the
 | Collector unreachable from SDK | Transport drops are counted in worker `queuelens_dropped_total`; jobs continue and failed events are not retried. Go discards queued/new events until an authenticated recovery heartbeat succeeds; flush ticks probe without reopening event encoding. |
 | SDK buffer full | Newest events are dropped and counted immediately. |
 | Worker shutdown | Stop producers, then Close with a deadline. Undelivered events are counted; collector acceptance is not database durability. |
-| A partition for the current month is missing | The collector creates it at startup. Creating partitions further ahead is M3 work. |
+| A required partition is missing | Startup/maintenance idempotently create current/next two months and the seven-day late-arrival month. Unrecognized names/bounds are refused. |
 | A malformed event | It is rejected on its own with a reason. The rest of the batch is still accepted. |
+| A retained producer ID has conflicting content | The asynchronous storage transaction rolls back ledger/raw writes; accepted-batch losses/errors are counted. |
+| Projection is behind or a query deadline expires | Pages expose committed lag, or unknown lag; missing facts do not become fabricated job outcomes. |
 
 ## Component responsibilities
 
@@ -95,7 +132,8 @@ failure behaviour of each stage.
 See [PLAN.md](PLAN.md) section 4 (non-goals). If a component is not on that diagram, it is not part of the
 design.
 
-## M3 preparation
+## M3 evidence
 
-M3 is **Not started**. Read [phase requirements](phases/M3.md) for planned contracts,
-ADR decisions and acceptance gates, and [development tools](DEVELOPMENT-TOOLS.md) for actual coverage.
+All local M3 gates are mapped in [validation](testing/m3-lifecycle.md); measured throughput,
+SDK overhead, storage latency and sampling limits are in [measurements](benchmarks/m3-lifecycle.md).
+Native Windows race now passes with x64 GCC. No QueueLens CI run, merge or release is claimed.

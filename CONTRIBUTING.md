@@ -59,13 +59,16 @@ The index lives in `.codegraph/`. Git ignores its database and temporary files; 
 
 ## JavaScript static analysis
 
-The BullMQ fixture is the only JavaScript in this repository. It is checked with
+The BullMQ fixture and TypeScript SDK contain JavaScript/TypeScript. The fixture is checked with
 [MemGuard](https://www.npmjs.com/package/memguard), a static analyser for memory and resource
 problems, pinned as a development dependency of the fixture:
 
 ```bash
 make memory-check
 ```
+
+The same pinned executable can analyze `sdk/typescript/src` manually; that SDK check is not a CI gate.
+Static scope and runtime sampling evidence are recorded in [M3 validation](docs/testing/m3-lifecycle.md).
 
 MemGuard requires Node 22 or newer, so the fixture's `package.json` says so and CI uses Node 22.
 
