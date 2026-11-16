@@ -13,7 +13,7 @@ depends_on:
   - Redis 7.2
   - BullMQ (first supported queue ecosystem)
 created: 2026-11-13
-updated: 2026-11-16
+updated: 2026-11-14
 ---
 
 # QueueLens — Implementation Plan
@@ -24,18 +24,12 @@ updated: 2026-11-16
 
 ## 0. Machine context
 
-M1/M2 are merged into `main`; M3 is **implemented and locally verified** on
-`feat/m3-implementation`, runtime/test source `728999d`. Publication and CI are pending.
-The [M3 requirements](phases/M3.md) are the acceptance contract, with decisions in ADRs 0006–0010.
-[Validation](testing/m3-lifecycle.md) and [measurements](benchmarks/m3-lifecycle.md) record actual gates,
-diagnosed failures and limits. The [development-tool audit](DEVELOPMENT-TOOLS.md) describes optional aids.
-
 ```yaml
 project: QueueLens
 status: mvp
 version: 0.1.0
 builds: true
-functional: partial            # collection, lifecycle evidence and retention work; dashboard/rollups remain
+functional: partial            # collection and ingest work; nothing analyses or visualises yet
 
 implemented:
   - repository skeleton
@@ -53,14 +47,12 @@ implemented:
   - authenticated worker heartbeat api and workers table
   - shared protocol conformance and million-job overhead benchmarks
   - Go SDK recovery probes keep failed collectors from repeatedly reopening event encoding
-  - persistent producer identity with atomic duplicate/conflict handling and M2 migration compatibility
-  - bounded deterministic job_runs/job_attempts projections with exact transactional processing markers
-  - authenticated paginated failure/stall/worker evidence, signed cursors and bounded lag queries
-  - explicit stall and configurable receipt-based job/worker suspicion without retry-exhaustion inference
-  - checked UTC monthly partition maintenance and raw/history retention with durable bounded pruning
 
 not_implemented:
-  - metrics_hourly, alert_rules, alerts_fired tables
+  - job lifecycle reconstruction
+  - worker-down classification
+  - job_runs, metrics_hourly, alert_rules, alerts_fired tables
+  - partition maintenance and retention
   - analytics and rollups
   - dashboard
   - alerting
@@ -200,15 +192,11 @@ Two ingestion paths exist and they are not equivalent:
 2. **Pull (adapter)** — QueueLens polls the broker. Works with no code change, cannot see in-job timing.
 
 M1 shipped the pull path and ingest endpoint. M2 adds SDK push instrumentation with explicit duration
-metadata. SDK source is merged into `main`; this is not a claim of an npm/Go package release.
+metadata. SDKs remain unpublished source on the feature branch.
 
 ---
 
 ## 7. Data model
-
-The M3 identity/projection schema and CHECK/index definitions are authoritative in
-[migration 0003](../migrations/0003_lifecycle.sql). The abbreviated model below includes M3 raw/run
-columns; metrics and alert tables remain planned M5 schemas.
 
 ```sql
 CREATE TABLE queue_events (
@@ -224,38 +212,21 @@ CREATE TABLE queue_events (
     duration_ms  integer,
     error        text,
     received_at  timestamptz NOT NULL DEFAULT now(),
-    event_id     text,
-    event_key    bytea,
-    content_fingerprint bytea,
-    source_ts    text,
-    identity_kind text NOT NULL DEFAULT 'legacy',
-    projected_at timestamptz,
-    projection_status text,
     PRIMARY KEY (ts, id)
 ) PARTITION BY RANGE (ts);
 
 CREATE TABLE job_runs (
     queue        text NOT NULL,
     job_id       text NOT NULL,
-    reported_attempt smallint NOT NULL,
-    observed_attempts integer NOT NULL,
-    incomplete_attempts integer NOT NULL,
-    state        text NOT NULL,
-    first_received_at timestamptz NOT NULL,
-    last_received_at timestamptz NOT NULL,
-    complete_observed boolean NOT NULL,
-    pruning_at   timestamptz,
-    summary      jsonb NOT NULL,
+    job_name     text NOT NULL DEFAULT '',
+    enqueued_at  timestamptz,
+    started_at   timestamptz,
+    finished_at  timestamptz,
+    attempts     smallint NOT NULL DEFAULT 0,
+    final_state  text,
+    last_error   text,
+    updated_at   timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (queue, job_id)
-);
-
-CREATE TABLE event_identities (
-    queue        text NOT NULL,
-    event_key    bytea NOT NULL,
-    event_id     text NOT NULL,
-    content_fingerprint bytea NOT NULL,
-    first_received_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-    PRIMARY KEY (queue, event_key)
 );
 
 CREATE TABLE workers (
@@ -265,7 +236,6 @@ CREATE TABLE workers (
     last_seen   timestamptz NOT NULL DEFAULT now()
 );
 
--- Planned M5, not implemented:
 CREATE TABLE metrics_hourly (
     queue        text NOT NULL,
     bucket       timestamptz NOT NULL,
@@ -298,17 +268,8 @@ CREATE TABLE alerts_fired (
 );
 ```
 
-M3 also creates `job_attempts` (one compact summary per retained attempt), `projection_state`
-(durable partition scan positions) and `pruned_jobs` (bounded-lifetime reconstruction tombstones).
-Current/next two UTC months and the seven-day late-arrival month are created idempotently.
-Raw/history defaults are 30 days. A partition drop requires fully expired event-time bounds and
-receipts, no pending rows and checked metadata under finite locks; coarse retention can add nearly
-another month and backlog can extend it. Rollups/400-day retention remain M5.
-
-M3 stores provided protocol IDs with queue-scoped digest keys in a separate identity ledger.
-Identical retained IDs are no-ops; conflicting normalized content rolls back the storage batch.
-Missing/legacy IDs remain unknown. The raw bigserial is processing identity, not an SDK ID.
-Ledger cleanup retains entries while raw references exist. See ADRs 0006–0010 for complete policies.
+Rules: monthly partitions created two months ahead; raw events retained 30 days by default; rollups retained
+400 days; `job_runs` pruned when finished and older than 30 days.
 
 ---
 
@@ -330,9 +291,6 @@ Query API:
 | GET | `/v1/queues/{queue}/jobs` | Cursor-paginated jobs by state |
 | GET | `/v1/jobs/{queue}/{job_id}` | Job plus attempt timeline |
 | GET | `/v1/workers` | Worker list with last heartbeat |
-| GET | `/v1/jobs/failed` | M3 paginated observed-failure evidence |
-| GET | `/v1/jobs/stalled` | M3 paginated explicit-stall evidence |
-| GET | `/v1/jobs/suspected-stalled` | M3 paginated no-job-receipt suspicion |
 | GET | `/v1/metrics/timeseries` | `?queue=&metric=&from=&to=&step=` |
 | GET/POST/PATCH | `/v1/alert-rules` | Alert rule CRUD |
 | GET | `/v1/alerts` | Fired alerts |
@@ -346,9 +304,7 @@ The SDK treats both as non-fatal and never retries synchronously.
 
 Implemented in M1: `POST /v1/events`, `GET /v1/queues`, `GET /healthz`, `GET /readyz` and
 `GET /metrics`. M2 also implements `POST /v1/workers/heartbeat` for receipt-time persistence.
-M3 implements `/v1/jobs/failed`, `/v1/jobs/stalled`, `/v1/jobs/suspected-stalled` and `/v1/workers`.
-They default to 100 items, cap at 200 and expose opaque signed cursors, evaluation time, lag and
-history limitations. Every other query path above is planned for M4/M5 and does not exist yet;
+Every other path in the tables above is planned for M3 to M5 and does not exist yet;
 `api/openapi.yaml` lists only the paths that are registered in the code.
 
 One addition to the response shape: `rejected` holds one entry per rejected event
@@ -401,33 +357,28 @@ TypeScript's successful enqueue allocation is sampled using Node's heap profiler
 measured in M1: a 1,000-event batch takes 3.18 ms at p50 and 5.41 ms at p99 end to end over HTTP on
 loopback, and the storage write of 1,000 rows takes 7.51 ms against a local PostgreSQL 16 server. The
 budget is 50 ms. The measurements, the hardware and the method are in
-[benchmarks/m1-ingest-5000eps.md](benchmarks/m1-ingest-5000eps.md).
+[docs/benchmarks/m1-ingest-5000eps.md](docs/benchmarks/m1-ingest-5000eps.md).
 
 ### Lifecycle reconstruction
 
-M3 folds retained `(queue,job_id,attempt)` summaries. The highest observed attempt wins;
-same-attempt precedence is `completed > retried > failed > stalled > started > enqueued`, then
-event timestamp/fingerprint. Duplicate starts do not increment distinct observed-attempt counts.
-Missing events leave unknown timings/history; `drained` is queue evidence and creates no job.
-Each bounded partition transaction commits summaries with exact `(ts,id)` processing markers.
-The persisted round-robin scan revisits lower IDs committed late. Job-ID reuse and contradictory
-source facts remain evidence flags, without an invented generation or retry-exhaustion claim.
-See [M3 requirements](phases/M3.md), ADR 0006 and the named validation tests.
+For each job, events are folded in `ts` order:
+
+- `enqueued` sets `enqueued_at`
+- `started` sets `started_at`, increments `attempts`
+- `completed` sets `finished_at`, `final_state = completed`
+- `failed` sets `last_error`; `final_state` becomes `failed` unless a later `retried` arrives
+- out-of-order events are tolerated: state transitions are idempotent and monotonic
 
 ### Stall detection
 
 | Condition | Verdict |
 |---|---|
-| Explicit `stalled` event | Observed stall evidence |
-| No progress beyond an explicitly configured threshold | Suspected stall; missing telemetry remains possible |
-| No worker receipt-time heartbeat for 60 s | Suspected worker down, visible on the next evaluation tick |
-| `failed` event without retry-exhaustion evidence | Observed failure, not proof of terminal/dead job |
+| `waiting` job with no `started` event for > 10 min | stalled queue |
+| `active` job with no heartbeat for > 2 × expected duration | stalled job |
+| Worker with `last_seen` > 60 s | worker down |
+| `job_runs` row with `attempts = max_attempts` and `final_state = failed` | dead job |
 
-The protocol has no job heartbeat, expected duration or `max_attempts`. Do not infer them from worker
-liveness. Worker suspicion uses 60-second receipt absence plus the next UTC evaluation tick
-(default five seconds), visible when queried. Job suspicion defaults to 15 minutes without a job
-receipt; zero disables it. Explicit stalls are independent source evidence. Projection backlog may
-delay observations and is exposed as lag; no background notification or universal two-poll promise is made.
+Thresholds are configurable but the defaults are documented and tested.
 
 ---
 
@@ -443,13 +394,7 @@ delay observations and is exposed as lag; no background notification or universa
 | `QUELENS_POLL_INTERVAL` | `5s` | adapter poll cadence |
 | `QUELENS_BUFFER_SIZE` | `10000` | collector buffer |
 | `QUELENS_BATCH_SIZE` | `500` | insert batch |
-| `QUELENS_RETENTION_RAW_DAYS` | `30` | checked whole-month raw retention |
-| `QUELENS_RETENTION_HISTORY_DAYS` | `30` | projection/worker history and tombstones |
-| `QUELENS_STALL_AFTER` | `15m` | no-job-receipt suspicion; `0s` disables |
-| `QUELENS_EVALUATION_INTERVAL` | `5s` | UTC query ticks, 1 second–1 minute |
-| `QUELENS_MAINTENANCE_INTERVAL` | `10m` | bounded cleanup/partition cadence |
-| `QUELENS_PROJECTION_INTERVAL` | `250ms` | wait after empty cycle or error |
-| `QUELENS_PROJECTION_BATCH_SIZE` | `1000` | one partition, maximum 1,000 pending rows |
+| `QUELENS_RETENTION_RAW_DAYS` | `30` | raw events |
 | `QUELENS_RETENTION_ROLLUP_DAYS` | `400` | hourly rollups |
 | `QUELENS_LOG_LEVEL` | `info` | |
 
@@ -459,10 +404,9 @@ wins when both are set. Two variables the plan does not list are implemented as 
 `QUEUELENS_BATCH_SIZE` is the events per database round trip (default 500, maximum 1,000) and
 `QUEUELENS_FLUSH_INTERVAL` is the maximum time an event waits in the buffer (default 250 ms).
 
-M3 implements raw/history retention and the lifecycle variables above, with canonical `QUEUELENS_*`
-spellings and `QUELENS_*` aliases. Rollup retention is still unimplemented M5 work; no rollup tables exist.
-Retention preserves unexpired receipts/pending raw rows and bounds projection cleanup; unresolved
-runs have an absolute first-receipt age cap. Very long jobs can lose projected history.
+`QUELENS_RETENTION_RAW_DAYS` and `QUELENS_RETENTION_ROLLUP_DAYS` are **not implemented**: retention is
+M3 work, and there are no rollup tables yet. The collector does not read those variables today, and
+nothing in this release claims that data is deleted.
 
 ---
 
@@ -485,7 +429,7 @@ Status note: the five-minute run was measured on 2026-11-13 with the collector p
 processors of an AMD Ryzen 5 5600H: 1,500,000 events accepted at 4,999.99 events/s, p50 request
 latency 1.17 ms, p99 2.50 ms, zero drops, zero rejected events, zero failed writes. The hardware, the
 method and what the run does not prove are in
-[benchmarks/m1-ingest-5000eps.md](benchmarks/m1-ingest-5000eps.md). The BullMQ counts are
+[docs/benchmarks/m1-ingest-5000eps.md](docs/benchmarks/m1-ingest-5000eps.md). The BullMQ counts are
 checked against a real BullMQ 6.7.6 queue seeded by the committed fixture in
 `tests/integration/bullmq`, not against a hand-written Redis fixture. The integration suite passes
 locally against PostgreSQL 16.16 and Redis 7.2.17, and the CI workflow defines the same environment:
@@ -519,7 +463,7 @@ macos-latest.
 
 Evidence: [benchmark report](benchmarks/m2-sdk-overhead.md) and
 [validation report](testing/m1-m2-validation.md). Heartbeats use server receipt time and persist
-first/last seen plus optional pool. M3 adds receipt-based worker suspicion. SDKs are best effort;
+first/last seen plus optional pool. Worker-down classification remains M3. SDKs are best effort;
 stop producers before Close, and expose drop metrics from the worker process.
 
 The Go SDK keeps a failed transport closed until an authenticated heartbeat probe returns HTTP 202.
@@ -529,22 +473,15 @@ decision in ADR 0004. The benchmark workload and p50/p99 budgets remain unchange
 
 ### M3 — Lifecycle and failure analysis
 
-**Deliverable:** durable event identity, `job_runs` folding, evidence-based stall/worker views and raw retention.
-
-Status: **Implemented and locally verified** on the feature branch; publication/CI pending.
-Evidence is in [M3 validation](testing/m3-lifecycle.md) and
-[measurements](benchmarks/m3-lifecycle.md). The current phase contract and ADR 0006 replace an
-unconditional two-poll claim with bounded replay and explicit lag; backlog can delay source evidence.
+**Deliverable:** `job_runs` folding, stall detection, failed/stalled views, retention job.
 
 **Acceptance criteria**
 
-- [x] Out-of-order events fold into the correct final state (property test with shuffled input)
-- [x] Explicit stall evidence is folded by bounded replay; suspected stalls are separate and lag is exposed
-- [x] Worker-down suspicion appears after the 60 s threshold, within one evaluation interval when queried
-- [x] Retention drops only fully expired partitions, preserving unexpired and unprocessed evidence
-- [x] Partition creation covers the next two months automatically
-- [x] Identity migration, duplicate/conflicting IDs and concurrent-commit checkpoint recovery pass
-- [x] Paginated authenticated failure/stall/worker views expose lag and incomplete-history limitations
+- [ ] Out-of-order events fold into the correct final state (property test with shuffled input)
+- [ ] Stalled job detected within 2 poll intervals
+- [ ] Dead worker flagged within 60 s of last heartbeat
+- [ ] Retention job drops partitions older than configured days
+- [ ] Partition creation covers the next two months automatically
 
 ### M4 — Dashboard
 
@@ -602,12 +539,10 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 | QL-012 | Non-blocking buffer test (dead collector) | QL-010 | M2 | Done |
 | QL-013 | Overhead benchmark and report | QL-012 | M2 | Done |
 | QL-014 | Worker heartbeat endpoint and table | QL-001 | M2 | Done |
-| QL-015A | Persist protocol event identity; define safe checkpoint and legacy-row semantics | QL-008 | M3 | Done locally |
-| QL-015 | Lifecycle folder (events → job_runs) | QL-015A | M3 | Done locally |
-| QL-016 | Out-of-order property test | QL-015 | M3 | Done locally |
-| QL-017 | Observed/suspected stalls and worker-down suspicion | QL-015 | M3 | Done locally |
-| QL-018 | Retention and partition maintenance | QL-008 | M3 | Done locally |
-| QL-018A | Paginated failed/stalled/worker views and API contract | QL-017 | M3 | Done locally |
+| QL-015 | Lifecycle folder (events → job_runs) | QL-008 | M3 | Not started |
+| QL-016 | Out-of-order property test | QL-015 | M3 | Not started |
+| QL-017 | Stall and dead-worker detection | QL-015 | M3 | Not started |
+| QL-018 | Retention and partition maintenance | QL-008 | M3 | Not started |
 | QL-019 | Query API: queues and jobs | QL-015 | M4 | Partly done: `GET /v1/queues` exists |
 | QL-020 | Dashboard scaffolding | QL-019 | M4 | Not started |
 | QL-021 | Overview and queue detail views | QL-020 | M4 | Not started |
@@ -666,12 +601,10 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 
 ## 16. Anti-hallucination contract
 
-**Facts:** the server starts, applies forward migrations, serves the HTTP API, buffers accepted events
-and persists successful batches atomically in PostgreSQL. The BullMQ adapter reads real queue counts from Redis. The
+**Facts:** the server starts, applies its migrations, serves the HTTP API and stores the events it
+accepts in a partitioned PostgreSQL table. The BullMQ adapter reads real queue counts from Redis. The
 Go and TypeScript SDKs emit events and heartbeats; the load generator can drive the collector and
-report what happened. M3 adds retained lifecycle folding, paginated evidence and checked retention.
-There is no dashboard, rollup analytics, alert rule or second adapter. No QueueLens M3 publication,
-CI result or release is claimed.
+report what happened. There is no lifecycle folding, dashboard, alert rule or second adapter.
 
 **Rules:**
 
@@ -701,9 +634,8 @@ CI result or release is claimed.
 
 1. Read sections 0, 3 and 9, then section 16.
 2. `make build && ./bin/queuelens version`.
-3. M1/M2 are merged into `main`; M3 is locally verified on `feat/m3-implementation`, with publication/CI
-   pending. Read [M3 requirements](phases/M3.md), ADRs 0006–0010 and the validation/benchmark records.
-   SDK conformance/heartbeat/recovery remain unchanged regression gates.
+3. M1 is tagged and M2 is implemented on the feature branch. The next milestone is M3, starting
+   with QL-015 lifecycle folding. Shared SDK conformance and heartbeat integration remain regression gates.
 4. Run the overhead benchmark before and after any change to the emit path:
    `make sdk-bench` on Linux for both SDKs, `make bench` for storage and `make loadtest` for ingest.
 5. Never add an adapter without the conformance suite.

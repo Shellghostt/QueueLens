@@ -1,5 +1,5 @@
 BINARY := queuelens
-VERSION ?= $(shell git describe --tags --always --dirty)
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 # Local infrastructure. The compose file maps PostgreSQL to 55433 and Redis to
@@ -7,7 +7,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 POSTGRES_DSN ?= postgresql://queuelens:queuelens@127.0.0.1:55433/queuelens
 REDIS_URL ?= redis://127.0.0.1:56379/0
 
-.PHONY: bootstrap build test race integration bench loadtest m3-load lint fmt vet memory-check run docker db-up db-down fixture sdk-test sdk-bench clean
+.PHONY: bootstrap build test race integration bench loadtest lint fmt vet memory-check run docker db-up db-down fixture sdk-test sdk-bench clean
 
 bootstrap:
 	go mod download
@@ -26,9 +26,7 @@ race:
 # The integration suite needs a real PostgreSQL and a real Redis. The BullMQ
 # fixture additionally needs Node and its dependencies.
 integration: sdk-test
-	go test -count=1 -v ./tests/integration
-integration: export QUEUELENS_TEST_DATABASE_URL = $(POSTGRES_DSN)
-integration: export QUEUELENS_TEST_REDIS_URL = $(REDIS_URL)
+	QUEUELENS_TEST_DATABASE_URL=$(POSTGRES_DSN) QUEUELENS_TEST_REDIS_URL=$(REDIS_URL) go test -count=1 -v ./tests/integration
 
 fixture:
 	cd tests/integration/bullmq && npm install
@@ -39,8 +37,7 @@ sdk-test:
 
 sdk-bench:
 	cd sdk/typescript && npm ci && npm run bench
-	go test -count=1 -timeout=120s -v ./tests/bench
-sdk-bench: export QUEUELENS_RUN_BENCH = 1
+	QUEUELENS_RUN_BENCH=1 go test -count=1 -timeout=120s -v ./tests/bench
 
 # MemGuard is a static analyser for JavaScript memory and resource problems.
 # It is pinned as a development dependency of the BullMQ fixture and runs in
@@ -49,24 +46,17 @@ memory-check:
 	cd tests/integration/bullmq && npm run memory:check
 
 bench:
-	go test ./internal/store -bench WriteBatch1000 -benchtime 20x -run XXX
-bench: export QUEUELENS_TEST_DATABASE_URL = $(POSTGRES_DSN)
+	QUEUELENS_TEST_DATABASE_URL=$(POSTGRES_DSN) go test ./internal/store -bench WriteBatch1000 -benchtime 20x -run XXX
 
 # The five minute ingest run from docs/benchmarks/m1-ingest-5000eps.md.
 loadtest: build
 	./bin/$(BINARY) loadgen --url http://127.0.0.1:8080 --rate 5000 --duration 5m --workers 4 --batch 100
 
-# Isolated synthetic HTTP/storage/projection run; retains no user database rows.
-m3-load: export QUEUELENS_RUN_M3_LOAD = 1
-m3-load: export QUEUELENS_TEST_DATABASE_URL = $(POSTGRES_DSN)
-m3-load:
-	go test -count=1 -timeout=180s -v ./tests/integration -run "^TestLifecycleSustainedProjectionMemoryAndLag$$"
-
 lint: fmt vet
 	golangci-lint run ./...
 
 fmt:
-	go fmt ./...
+	gofmt -l -w .
 
 vet:
 	go vet ./...

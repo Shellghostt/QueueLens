@@ -168,6 +168,19 @@ func (c *Collector) Ingest(ctx context.Context, events []protocol.Event) Result 
 		}
 
 		event.Normalize(c.limits)
+		if event.ID == "" {
+			generated, err := protocol.NewEventID()
+			if err != nil {
+				c.logger.Error("generate event id", "error", err)
+				c.metrics.EventsRejected.Add(1)
+				result.Rejected = append(result.Rejected, Rejection{
+					Index:  index,
+					Reason: "could not generate an event id",
+				})
+				continue
+			}
+			event.ID = generated
+		}
 
 		if c.enqueue(event) {
 			c.metrics.EventsAccepted.Add(1)

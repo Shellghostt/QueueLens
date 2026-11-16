@@ -20,7 +20,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -124,14 +123,14 @@ func runServe(args []string) error {
 			return err
 		}
 	}
-	if err := db.EnsurePartitions(ctx, time.Now().UTC()); err != nil {
-		return err
+	// The partition for the current month and the next one. Creating
+	// partitions further ahead is M3 work.
+	now := time.Now().UTC()
+	for _, month := range []time.Time{now, now.AddDate(0, 1, 0)} {
+		if err := db.EnsurePartition(ctx, month); err != nil {
+			return err
+		}
 	}
-	backgroundCtx, cancelBackground := context.WithCancel(ctx)
-	var background sync.WaitGroup
-	defer func() { cancelBackground(); background.Wait() }()
-	background.Go(func() { db.RunProjection(backgroundCtx, cfg.Lifecycle, logger) })
-	background.Go(func() { db.RunMaintenance(backgroundCtx, cfg.Lifecycle, logger) })
 
 	metricSet := metrics.New()
 	ingest := collector.New(db, collector.Options{
@@ -167,7 +166,6 @@ func runServe(args []string) error {
 		Version:   version,
 		Logger:    logger,
 		Heartbeat: db.Heartbeat,
-		Lifecycle: store.NewReader(db, cfg.Lifecycle, cfg.AdminToken),
 	})
 
 	server := &http.Server{
