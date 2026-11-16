@@ -6,11 +6,14 @@
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
 
-**Status: M3 implemented and locally verified on `feat/m3-implementation`.** QueueLens
+**Status: M3 complete and merged into main.** QueueLens
 collects BullMQ queue state, persists producer event identity, reconstructs retained job attempts
 and serves paginated failure, stall and worker-liveness evidence. Missing telemetry leaves history,
 duration and retry exhaustion unknown. Dashboard, rollups and alerts remain future work.
-M1/M2 are merged into main; M3 publication/CI is pending. See the
+M3 merged through [PR #2](https://github.com/Shellghostt/QueueLens/pull/2) at `12b5940`.
+All eight [post-merge CI jobs](https://github.com/Shellghostt/QueueLens/actions/runs/43823539904)
+passed, including race/build tests on Windows, Ubuntu and macOS.
+See the
 [M3 validation record](docs/testing/m3-lifecycle.md).
 
 ## Why this exists
@@ -267,7 +270,7 @@ buffer acceptance. Method, SDK regression numbers and limits are in the
 
 ## Roadmap
 
-M3 is **implemented and locally verified**, with publication and CI pending. Read the
+M3 is **complete and merged**, with local and post-merge CI verification. Read the
 [M3 requirements and evidence](docs/phases/M3.md), [validation record](docs/testing/m3-lifecycle.md)
 and [development-tool audit](docs/DEVELOPMENT-TOOLS.md) before continuing.
 
@@ -275,7 +278,7 @@ and [development-tool audit](docs/DEVELOPMENT-TOOLS.md) before continuing.
 |---|---|---|
 | M1 | Adapter interface, Redis adapter and event collection | **Done** (v0.1.0) |
 | M2 | Worker instrumentation and heartbeat storage | **Done (merged)** |
-| M3 | Persistent identity, lifecycle evidence and checked retention | **Locally verified; unpublished** |
+| M3 | Persistent identity, lifecycle evidence and checked retention | **Done (merged)** |
 | M4 | Dashboard with queue state and job timelines | Not started |
 | M5 | Metrics, alerting and retry analysis | Not started |
 | M6 | Historical analytics, horizontal scaling, extra adapters | Not started |

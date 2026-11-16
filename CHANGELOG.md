@@ -23,7 +23,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Nineteen M3 integration tests, pure folding/configuration checks, packaged M3 route smoke and an
   opt-in sustained HTTP/storage/projection run. [Validation](docs/testing/m3-lifecycle.md) and
   [measurements](docs/benchmarks/m3-lifecycle.md) record local passing gates and limitations.
-  M3 is locally verified on its feature branch; publication and CI are pending.
+  M3 merged through [PR #2](https://github.com/Shellghostt/QueueLens/pull/2) at `12b5940`.
+  The merged tree matched tested head `c931b9b` and passed all eight post-merge CI jobs,
+  including Windows/Ubuntu/macOS race. Exact links are in the validation record.
 
 - M2 Go and TypeScript SDKs with bounded non-blocking metadata buffers, background batches,
   generated worker identity, 15 second heartbeats, deadline-bounded Close and worker drop metrics.
