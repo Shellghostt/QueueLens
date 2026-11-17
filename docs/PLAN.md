@@ -13,7 +13,7 @@ depends_on:
   - Redis 7.2
   - BullMQ (first supported queue ecosystem)
 created: 2026-11-13
-updated: 2026-11-16
+updated: 2026-11-17
 ---
 
 # QueueLens — Implementation Plan
@@ -32,6 +32,12 @@ including Windows/Ubuntu/macOS race.
 The [M3 requirements](phases/M3.md) are the acceptance contract, with decisions in ADRs 0006–0010.
 [Validation](testing/m3-lifecycle.md) and [measurements](benchmarks/m3-lifecycle.md) record actual gates,
 diagnosed failures and limits. The [development-tool audit](DEVELOPMENT-TOOLS.md) describes optional aids.
+The M3 documentation is also merged through [PR #4](https://github.com/Shellghostt/QueueLens/pull/4);
+current main is `209707149e25701d8b4f8c896d6402226498cd3d`, with successful
+[main CI](https://github.com/Shellghostt/QueueLens/actions/runs/43827229518).
+M4 is **Not started**. [M4 requirements](phases/M4.md) and
+[proposed ADR 0011](adr/0011-m4-query-and-dashboard-contract.md) prepare compatible query extensions,
+observed metrics and browser access without claiming a dashboard or M4 acceptance.
 
 ```yaml
 project: QueueLens
@@ -140,7 +146,8 @@ queue overview and job timeline.
 
 ### v1.0 (M5–M6)
 
-Latency analytics, alerting, retention and partitioning, horizontal scaling, Asynq adapter, v1.0.0.
+Latency analytics, alerting, horizontal scaling, Asynq adapter, v1.0.0. Retention/partitioning are
+already implemented in M3; later milestones build on those contracts.
 
 ### Post-1.0
 
@@ -328,8 +335,8 @@ Query API:
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/v1/queues` | Queue list with depth, throughput, failure rate |
-| GET | `/v1/queues/{queue}` | Detail, last 24 h series |
+| GET | `/v1/queues` | Existing unpaginated live broker counts/depth; no historical rates |
+| GET | `/v1/queues/{queue}` | Planned M4 detail and bounded observed-outcome window |
 | GET | `/v1/queues/{queue}/jobs` | Cursor-paginated jobs by state |
 | GET | `/v1/jobs/{queue}/{job_id}` | Job plus attempt timeline |
 | GET | `/v1/workers` | Worker list with last heartbeat |
@@ -341,7 +348,7 @@ Query API:
 | GET | `/v1/alerts` | Fired alerts |
 | GET | `/healthz`, `/readyz`, `/metrics` | Operational |
 
-Auth: `Authorization: Bearer <token>` from `QUELENS_ADMIN_TOKEN`. The collector accepts the same token; v1 has
+Auth: `Authorization: Bearer <token>` from `QUEUELENS_ADMIN_TOKEN` (legacy `QUELENS_*` aliases remain). The collector accepts the same token; v1 has
 no separate ingest key.
 
 Ingest response: `202 {"accepted": 1000, "dropped": 0}`. On saturation: `429` with `Retry-After: 1`.
@@ -353,6 +360,9 @@ M3 implements `/v1/jobs/failed`, `/v1/jobs/stalled`, `/v1/jobs/suspected-stalled
 They default to 100 items, cap at 200 and expose opaque signed cursors, evaluation time, lag and
 history limitations. Every other query path above is planned for M4/M5 and does not exist yet;
 `api/openapi.yaml` lists only the paths that are registered in the code.
+M4 needs a compatible bounded dashboard queue-page route/mode while preserving the existing queue
+response. Broker completed/failed set sizes are not monotonic counters. The proposed metric/session
+contract is in [ADR 0011](adr/0011-m4-query-and-dashboard-contract.md); hourly series/rollups remain M5.
 
 One addition to the response shape: `rejected` holds one entry per rejected event
 (`{"index": 1, "id": "...", "reason": "job_id: is required"}`), so a producer can tell which event to
@@ -554,12 +564,17 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 
 **Deliverable:** React dashboard: overview, queue detail, job timeline, workers.
 
+Status: **Not started; documentation prepared.** Follow [M4 requirements](phases/M4.md) and resolve
+[proposed ADR 0011](adr/0011-m4-query-and-dashboard-contract.md) before query/auth/frontend code.
+QL-019 is already partly implemented; the remaining pages/rates/timelines require real bounded APIs.
+
 **Acceptance criteria**
 
-- [ ] Overview shows depth, throughput and failure rate for every queue
-- [ ] Job timeline renders every attempt with duration and error
-- [ ] Dashboard p95 query < 300 ms for 30 days of hourly rollups
+- [ ] Overview shows observed depth/selected-outcome rates with explicit UTC windows, denominators and stale/unknown states
+- [ ] Job timeline renders every retained attempt across pages, supplied duration/error and incomplete/pruned/reuse evidence
+- [ ] Dashboard p95 query < 300 ms over a declared 30-day retained-summary workload with concurrent projection/maintenance
 - [ ] No unbounded table: every list is paginated
+- [ ] Auth, safe rendering, cancellation/cache bounds and browser checks preserve M3 query/SDK/retention contracts
 - [ ] One screenshot in the README from a real local run
 
 ### M5 — Metrics, alerts, analytics
@@ -573,6 +588,7 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 - [ ] Alert resolves automatically when the condition clears
 - [ ] Prometheus endpoint exposes queue depth, failure rate and collector lag
 - [ ] Analytics queries use rollups, never scan raw partitions
+- [ ] Dashboard p95 query < 300 ms for 30 days of hourly rollups after QL-023; record real workload/hardware
 
 ### M6 — Scale and second adapter
 
@@ -612,10 +628,10 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 | QL-017 | Observed/suspected stalls and worker-down suspicion | QL-015 | M3 | Done (merged) |
 | QL-018 | Retention and partition maintenance | QL-008 | M3 | Done (merged) |
 | QL-018A | Paginated failed/stalled/worker views and API contract | QL-017 | M3 | Done (merged) |
-| QL-019 | Query API: queues and jobs | QL-015 | M4 | Partly done: `GET /v1/queues` exists |
+| QL-019 | Bounded queue/job/attempt queries and observed metric windows | QL-015, QL-018A | M4 | Partly done: live queues and M3 evidence pages exist |
 | QL-020 | Dashboard scaffolding | QL-019 | M4 | Not started |
-| QL-021 | Overview and queue detail views | QL-020 | M4 | Not started |
-| QL-022 | Job timeline view | QL-021 | M4 | Not started |
+| QL-021 | Overview, queue detail and worker evidence views | QL-020 | M4 | Not started |
+| QL-022 | Paginated retained-attempt timeline and history limitations | QL-019, QL-021 | M4 | Not started |
 | QL-023 | Hourly rollups and percentiles | QL-015 | M5 | Not started |
 | QL-024 | Alert rule evaluation and dedup | QL-023 | M5 | Not started |
 | QL-025 | Alert notification channel | QL-024 | M5 | Not started |
@@ -634,7 +650,8 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 - **Overhead benchmark** is a CI job with a fixed workload; regression beyond budget fails the build.
 - **Kill tests:** kill the collector, kill the collector mid-batch, kill Redis. The application must not
   notice beyond a dropped-event counter.
-- **Query budget tests** assert dashboard queries never scan raw partitions.
+- **Query budget tests** assert dashboard history/metric queries read bounded summaries, not raw partition
+  scans. Existing capped projection-lag sampling is separate and retains its own bounds/unknown behavior.
 
 ---
 

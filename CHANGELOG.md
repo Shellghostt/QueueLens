@@ -9,6 +9,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- [M4 preparation](docs/phases/M4.md) and [proposed ADR 0011](docs/adr/0011-m4-query-and-dashboard-contract.md)
+  for bounded query/timeline extensions, observed metric windows, browser access and future acceptance.
+  Documentation only; M4 remains not started. The ADR index now includes accepted M3 records 0006–0010.
 - [M3 requirements](docs/phases/M3.md) with phase boundaries, failure cases, ADR prerequisites and
   acceptance gates, plus a [development-tool audit](docs/DEVELOPMENT-TOOLS.md).
 - M3 producer identity persistence and atomic duplicate/conflict handling, with forward migration 0003

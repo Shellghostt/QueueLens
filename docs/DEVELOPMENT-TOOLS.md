@@ -1,7 +1,8 @@
 # Development tools and memory validation
 
 Audit date: 2026-11-14. These are development aids, not product features or substitutes for tests.
-Read [PLAN.md](PLAN.md), the [M3 requirements](phases/M3.md) and accepted [ADRs](adr/) first.
+Read [PLAN.md](PLAN.md), the [M4 requirements](phases/M4.md), implemented [M3 contract](phases/M3.md)
+and accepted [ADRs](adr/) first. M4 ADR 0011 remains proposed.
 
 ## CodeGraph
 
@@ -12,6 +13,9 @@ The previous index was still at M1. Check freshness when switching branches or p
 codegraph status
 codegraph sync
 ```
+
+On 2026-11-17, `codegraph status` reported the existing index up to date against merged M3 source.
+No new index or generated source was created for M4 preparation.
 
 For indexed code, use the CodeGraph MCP exploration tool with this repository's absolute
 `projectPath` and the symbol/flow you need. Read its returned source and callers before edits;
@@ -44,6 +48,13 @@ active handles as applicable, and latency/drop metrics. Go benchmarks can collec
 heap snapshots/inspector; Python supports `tracemalloc`. Choose the native tool for the process.
 Record versions, duration, inputs, commands and limitations in a validation report.
 Profile only when the change or suspected fault justifies it; a documentation edit needs link/diff checks.
+
+## M4 implementation validation
+
+Use browser/Node profiles for repeated dashboard navigation, polling, aborts, filters and paginated
+cache cleanup. Include real frontend sources in separately pinned static analysis once they exist;
+the current MemGuard fixture check does not cover a future dashboard. Measure Go/PostgreSQL query
+bounds/latency under projection/retention and retain SDK/storage budgets. These are future M4 gates.
 
 ## Memory Analyzer
 

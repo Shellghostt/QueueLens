@@ -2,7 +2,7 @@
 
 > A self-hosted observability platform for distributed background job systems.
 
-![status](https://img.shields.io/badge/status-M3_lifecycle-orange)
+![status](https://img.shields.io/badge/status-M3_complete-green)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
 
@@ -33,13 +33,13 @@ job lifecycle directly: enqueued, started, retried, failed, stalled, completed.
 | Report collector counters in the Prometheus text format | M1 | **Done** |
 | Go and TypeScript instrumentation SDKs | M2 | **Done**, unpublished |
 | Authenticated worker heartbeat and receipt-time storage | M2 | **Done** |
-| Observed/suspected stalls and receipt-based worker-down suspicion | M3 | **Locally verified** |
-| Persistent identity, bounded lifecycle projections and paginated evidence queries | M3 | **Locally verified** |
-| Checked monthly partition maintenance and raw/history retention | M3 | **Locally verified** |
+| Observed/suspected stalls and receipt-based worker-down suspicion | M3 | **Done (merged)** |
+| Persistent identity, bounded lifecycle projections and paginated evidence queries | M3 | **Done (merged)** |
+| Checked monthly partition maintenance and raw/history retention | M3 | **Done (merged)** |
 | Dashboard and job timelines | M4 | Not started |
 | Historical performance analytics | M5 | Not started |
 | Configurable alerting | M5 | Not started |
-| Additional queue adapters (SQS, Celery, Sidekiq) | M6 | Not started |
+| Second queue adapter (Asynq) | M6 | Not started |
 
 ## Architecture
 
@@ -273,17 +273,21 @@ buffer acceptance. Method, SDK regression numbers and limits are in the
 M3 is **complete and merged**, with local and post-merge CI verification. Read the
 [M3 requirements and evidence](docs/phases/M3.md), [validation record](docs/testing/m3-lifecycle.md)
 and [development-tool audit](docs/DEVELOPMENT-TOOLS.md) before continuing.
+The documentation also merged through [PR #4](https://github.com/Shellghostt/QueueLens/pull/4), with
+successful [current main CI](https://github.com/Shellghostt/QueueLens/actions/runs/43827229518).
+[M4 requirements](docs/phases/M4.md) and [proposed query/dashboard ADR](docs/adr/0011-m4-query-and-dashboard-contract.md)
+prepare the remaining queries and UI; M4 implementation has not started.
 
 | Milestone | Deliverable | Status |
 |---|---|---|
 | M1 | Adapter interface, Redis adapter and event collection | **Done** (v0.1.0) |
 | M2 | Worker instrumentation and heartbeat storage | **Done (merged)** |
 | M3 | Persistent identity, lifecycle evidence and checked retention | **Done (merged)** |
-| M4 | Dashboard with queue state and job timelines | Not started |
-| M5 | Metrics, alerting and retry analysis | Not started |
-| M6 | Historical analytics, horizontal scaling, extra adapters | Not started |
+| M4 | Dashboard with queue state and job timelines | Not started; documents prepared |
+| M5 | Historical rollups, metrics and alerts | Not started |
+| M6 | Horizontal scaling and Asynq adapter | Not started |
 
-This roadmap mirrors [docs/PLAN.md](docs/PLAN.md) section 12. If the two disagree, the plan is correct and
+This roadmap mirrors [docs/PLAN.md](docs/PLAN.md) section 11. If the two disagree, the plan is correct and
 the README is a bug.
 
 ## Testing

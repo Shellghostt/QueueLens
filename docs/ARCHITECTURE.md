@@ -3,7 +3,8 @@
 **Status: M3 complete and merged into main, with local and post-merge CI verification.**
 [PR #2](https://github.com/Shellghostt/QueueLens/pull/2) merged at `12b5940` with the exact tested M3 tree.
 The collector, BullMQ adapter, both SDKs, producer-identity ledger, bounded job projections,
-failure/stall/worker queries and checked retention exist. SDK/protocol source is unchanged from M2.
+failure/stall/worker queries and checked retention exist. M2 SDK/protocol wire semantics are preserved;
+Go SDK recovery follows ADR 0005.
 Dashboard, rollup analytics and alerts remain future work. The authoritative specification is
 [PLAN.md](PLAN.md), [M3 requirements](phases/M3.md) and accepted ADRs; verification is in
 [M3 validation](testing/m3-lifecycle.md).
@@ -141,3 +142,11 @@ Native Windows race passes with x64 GCC; CI also passed race/build tests on Wind
 Publication/run links are in validation and the
 [post-merge CI run](https://github.com/Shellghostt/QueueLens/actions/runs/43823539904).
 No new tagged release is claimed.
+
+## M4 preparation
+
+[M4 requirements](phases/M4.md) and [proposed ADR 0011](adr/0011-m4-query-and-dashboard-contract.md)
+prepare bounded queue/job/attempt reads, observed metric windows and a polling React dashboard.
+The existing queue list is live/unpaginated and cannot supply historical rates from retained broker
+count deltas. New UI paths must preserve M3 evidence/retention and keep shared ingest credentials
+outside browser assets/persistence. Hourly rollups/alerts remain M5; M4 is not implemented.
