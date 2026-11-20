@@ -35,7 +35,8 @@ diagnosed failures and limits. The [development-tool audit](DEVELOPMENT-TOOLS.md
 The M3 documentation is also merged through [PR #4](https://github.com/Shellghostt/QueueLens/pull/4);
 current main is `209707149e25701d8b4f8c896d6402226498cd3d`, with successful
 [main CI](https://github.com/Shellghostt/QueueLens/actions/runs/43827229518).
-M4 is **implemented and locally verified on `feat/m4-implementation`; publication/CI pending**.
+M4 is **implemented and verified locally and in CI** on `feat/m4-implementation`.
+[PR #5](https://github.com/Shellghostt/QueueLens/pull/5) is open and unmerged.
 [M4 requirements](phases/M4.md), accepted [ADR 0011](adr/0011-m4-query-and-dashboard-contract.md),
 [validation](testing/m4-dashboard.md) and [measurements](benchmarks/m4-dashboard.md) map the bounded
 queries, selected-outcome read model, browser sessions, polling UI and actual gates.
@@ -45,7 +46,7 @@ project: QueueLens
 status: mvp
 version: 0.1.0
 builds: true
-functional: partial            # M1–M4 work locally; M4 CI and M5 analytics/alerts remain
+functional: partial            # M1–M4 verified; M4 merge and M5 analytics/alerts remain
 
 implemented:
   - repository skeleton
@@ -569,10 +570,10 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 
 **Deliverable:** React dashboard: overview, queue detail, job timeline, workers.
 
-Status: **Implemented and locally verified; CI pending publication.** Accepted
+Status: **Implemented and verified locally and in CI; PR #5 open/unmerged.** Accepted
 [ADR 0011](adr/0011-m4-query-and-dashboard-contract.md) preceded code. The
 [validation record](testing/m4-dashboard.md) maps every phase criterion to tests, browser checks,
-measurements and the remaining CI gate. QL-019's existing M3 routes are preserved.
+measurements and passing branch/PR CI. QL-019's existing M3 routes are preserved.
 
 **Acceptance criteria**
 
@@ -582,7 +583,7 @@ measurements and the remaining CI gate. QL-019's existing M3 routes are preserve
 - [x] No unbounded table: every list is paginated
 - [x] Auth, safe rendering, cancellation/cache bounds and browser checks preserve M3 query/SDK/retention contracts locally
 - [x] One screenshot in the README from a real local run
-- [ ] Final Windows/Ubuntu/macOS and frontend CI pass after publication
+- [x] Windows/Ubuntu/macOS and frontend CI pass after publication (all nine checks at `af857aa`; links in validation)
 
 ### M5 — Metrics, alerts, analytics
 
@@ -635,10 +636,10 @@ measurements and the remaining CI gate. QL-019's existing M3 routes are preserve
 | QL-017 | Observed/suspected stalls and worker-down suspicion | QL-015 | M3 | Done (merged) |
 | QL-018 | Retention and partition maintenance | QL-008 | M3 | Done (merged) |
 | QL-018A | Paginated failed/stalled/worker views and API contract | QL-017 | M3 | Done (merged) |
-| QL-019 | Bounded queue/job/attempt queries and observed metric windows | QL-015, QL-018A | M4 | Locally verified; CI pending |
-| QL-020 | Dashboard scaffolding | QL-019 | M4 | Locally verified; CI pending |
-| QL-021 | Overview, queue detail and worker evidence views | QL-020 | M4 | Locally verified; CI pending |
-| QL-022 | Paginated retained-attempt timeline and history limitations | QL-019, QL-021 | M4 | Locally verified; CI pending |
+| QL-019 | Bounded queue/job/attempt queries and observed metric windows | QL-015, QL-018A | M4 | Verified locally/CI; PR #5 open |
+| QL-020 | Dashboard scaffolding | QL-019 | M4 | Verified locally/CI; PR #5 open |
+| QL-021 | Overview, queue detail and worker evidence views | QL-020 | M4 | Verified locally/CI; PR #5 open |
+| QL-022 | Paginated retained-attempt timeline and history limitations | QL-019, QL-021 | M4 | Verified locally/CI; PR #5 open |
 | QL-023 | Hourly rollups and percentiles | QL-015 | M5 | Not started |
 | QL-024 | Alert rule evaluation and dedup | QL-023 | M5 | Not started |
 | QL-025 | Alert notification channel | QL-024 | M5 | Not started |

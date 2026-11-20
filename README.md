@@ -2,11 +2,11 @@
 
 > A self-hosted observability platform for distributed background job systems.
 
-![status](https://img.shields.io/badge/status-M4_locally_verified-blue)
+![status](https://img.shields.io/badge/status-M4_verified-green)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
 
-**Status: M4 implemented and locally verified on `feat/m4-implementation`; publication and CI pending.**
+**Status: M4 verified locally and in CI; [PR #5](https://github.com/Shellghostt/QueueLens/pull/5) is open and unmerged.**
 QueueLens collects BullMQ state, reconstructs retained attempts and now provides bounded queue/job
 reads, selected-outcome metrics and a React dashboard with separate read-only browser sessions.
 Missing telemetry leaves history, duration and retry exhaustion unknown. Hourly rollups and alerts
@@ -38,8 +38,8 @@ job lifecycle directly: enqueued, started, retried, failed, stalled, completed.
 | Observed/suspected stalls and receipt-based worker-down suspicion | M3 | **Done (merged)** |
 | Persistent identity, bounded lifecycle projections and paginated evidence queries | M3 | **Done (merged)** |
 | Checked monthly partition maintenance and raw/history retention | M3 | **Done (merged)** |
-| Bounded dashboard queries, selected-outcome metrics and job timelines | M4 | **Locally verified; CI pending** |
-| Separate read-only browser session and bounded polling React UI | M4 | **Locally verified; CI pending** |
+| Bounded dashboard queries, selected-outcome metrics and job timelines | M4 | **Verified; PR #5 open** |
+| Separate read-only browser session and bounded polling React UI | M4 | **Verified; PR #5 open** |
 | Historical performance analytics | M5 | Not started |
 | Configurable alerting | M5 | Not started |
 | Second queue adapter (Asynq) | M6 | Not started |
@@ -318,7 +318,7 @@ and [validation](docs/testing/m4-dashboard.md) record the locally implemented da
 | M1 | Adapter interface, Redis adapter and event collection | **Done** (v0.1.0) |
 | M2 | Worker instrumentation and heartbeat storage | **Done (merged)** |
 | M3 | Persistent identity, lifecycle evidence and checked retention | **Done (merged)** |
-| M4 | Dashboard with queue state and job timelines | **Locally verified; publication/CI pending** |
+| M4 | Dashboard with queue state and job timelines | **Verified locally and in CI; PR #5 open** |
 | M5 | Historical rollups, metrics and alerts | Not started |
 | M6 | Horizontal scaling and Asynq adapter | Not started |
 

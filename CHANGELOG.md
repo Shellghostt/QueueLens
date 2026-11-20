@@ -20,7 +20,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Real PG/API and browser cases, frontend/static/audit/build checks, the 30-day concurrent query
   benchmark and preserved SDK/load/storage gates. [M4 validation](docs/testing/m4-dashboard.md),
   [measurements](docs/benchmarks/m4-dashboard.md) and README images record local acceptance.
-  M4 is unmerged/unpushed and final CI is pending publication; no release is claimed.
+  M4 is published through [PR #5](https://github.com/Shellghostt/QueueLens/pull/5), with all nine
+  branch/PR CI checks passing at `af857aa`. The PR remains unmerged; no release is claimed.
 - [M3 requirements](docs/phases/M3.md) with phase boundaries, failure cases, ADR prerequisites and
   acceptance gates, plus a [development-tool audit](docs/DEVELOPMENT-TOOLS.md).
 - M3 producer identity persistence and atomic duplicate/conflict handling, with forward migration 0003

@@ -1,7 +1,7 @@
 # M4 query/dashboard validation — 2026-11-21
 
-Status: **Implemented and locally verified on `feat/m4-implementation`; unpushed,
-unmerged, CI pending.** Decisions were accepted in
+Status: **Implemented and verified locally and in CI on `feat/m4-implementation`;
+[PR #5](https://github.com/Shellghostt/QueueLens/pull/5) is published and unmerged.** Decisions were accepted in
 [ADR 0011](../adr/0011-m4-query-and-dashboard-contract.md) at `60ec7b1` before code.
 Implemented runtime/test/frontend source is committed at `6339601`; the record below
 describes checks of that source tree. Later status-only documentation does not change it.
@@ -32,8 +32,22 @@ missing infrastructure.
 | OpenAPI/CI YAML and local references | 22 implemented API paths, local references resolve; CI YAML parses |
 
 The performance dataset, plans, every request and regression measurements are
-recorded in [M4 measurements](../benchmarks/m4-dashboard.md). CI was not run
-locally or claimed as passing; publishing remains subject to user approval.
+recorded in [M4 measurements](../benchmarks/m4-dashboard.md). The feature branch and
+PR were published after explicit user approval; GitHub CI evidence follows.
+
+## Published CI
+
+All nine checks passed on published head `af857aa030db4844b7f04f6c3b930f529727a260`:
+
+- [Branch run 44821854812](https://github.com/Shellghostt/QueueLens/actions/runs/44821854812).
+- [PR run 44821939442](https://github.com/Shellghostt/QueueLens/actions/runs/44821939442).
+
+The checks cover native race/build on Windows, Ubuntu and macOS, embedded frontend
+builds on all three systems, PostgreSQL/Redis integration, SDK conformance/audit/overhead,
+lint, vulnerability scan, frontend lint/types/tests/audit/assets, and packaged container smoke.
+Subsequent status-only documentation commits retain runtime/test/frontend source `6339601`.
+Latest head checks remain visible on [PR #5](https://github.com/Shellghostt/QueueLens/pull/5/checks)
+and are rechecked before handoff. No merge or release is implied by passing checks.
 
 ## Acceptance mapping
 
@@ -51,7 +65,7 @@ locally or claimed as passing; publishing remains subject to user approval.
 | Browser access and credentials | `TestBrowserSessionReadOnlyOriginLogoutExpiryAndRestart`, `TestBrowserSessionBoundsAndProductionCookie`, configuration cases, production asset sentinel scan and actual browser logout/restart |
 | Client lifecycle/cache/rendering | `api.test.ts`, `use-poll.test.tsx`, `App.test.tsx`: byte/item bounds, one active read, abort/generation guards, hidden/visibility cleanup, backoff/stale data, unauthorized, fixed expiry, hostile text, empty storage |
 | Actual frontend and README image | Browser checks and saved [overview](../images/m4-dashboard.jpg), [timeline](../images/m4-timeline.jpg), [mobile](../images/m4-mobile.jpg), [stale](../images/m4-stale.jpg) evidence |
-| Final Windows/Ubuntu/macOS/frontend CI | Pending branch publication; nine checks are configured, no result invented |
+| Windows/Ubuntu/macOS/frontend and other CI | All nine checks passed in both branch and PR runs at `af857aa`; exact run links above |
 
 M4 selected-time caches floor sub-microsecond digits before PostgreSQL parsing can
 round across a whole-second evaluation boundary. Original selected JSON timestamps

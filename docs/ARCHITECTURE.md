@@ -1,6 +1,6 @@
 # QueueLens Architecture
 
-**Status: M4 locally implemented/verified on `feat/m4-implementation`; publication/CI pending.**
+**Status: M4 implemented/verified locally and in CI on `feat/m4-implementation`; [PR #5](https://github.com/Shellghostt/QueueLens/pull/5) is open/unmerged.**
 M1–M3 remain complete and merged into main, with local and post-merge CI verification.
 [PR #2](https://github.com/Shellghostt/QueueLens/pull/2) merged at `12b5940` with the exact tested M3 tree.
 The collector, BullMQ adapter, both SDKs, producer-identity ledger, bounded job projections,

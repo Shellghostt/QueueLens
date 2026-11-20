@@ -1,6 +1,6 @@
 # M4 dashboard query and regression measurements — 2026-11-21
 
-Measured locally on `feat/m4-implementation`; publication/CI are pending. These
+Measured locally on `feat/m4-implementation`, now published through PR #5 with passing CI. These
 are synthetic local workloads, with the database and client sharing a host.
 Raw query samples and the actual PostgreSQL plan are in
 [m4-dashboard-results.json](m4-dashboard-results.json). The sustained projection
@@ -100,5 +100,5 @@ make VERSION=m4-local sdk-bench
 
 These measurements do not establish production capacity, cold-cache behavior,
 multi-instance scaling, hourly rollups or latency percentiles. M5 owns those
-analytics and its additional workload. CI results will be recorded only after
-publishing the feature branch.
+analytics and its additional workload. Passing branch/PR CI links are recorded in
+[validation](../testing/m4-dashboard.md).
