@@ -31,3 +31,9 @@ tests/integration/bullmq/package-lock.json
 # M2 TypeScript SDK build output
 sdk/typescript/node_modules/
 sdk/typescript/dist/
+
+# M4 dashboard and task-local diagnostics
+web/node_modules/
+web/dist/
+web/coverage/
+.tmp/

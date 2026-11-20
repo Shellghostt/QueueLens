@@ -10,7 +10,8 @@ Thanks for taking the time. This document is deliberately short and specific.
 3. [docs/adr/](docs/adr/) - decisions that have already been argued about. Do not relitigate them
    without a new ADR.
 4. [docs/phases/M4.md](docs/phases/M4.md) - planned queries/dashboard, dependency order and acceptance;
-   preserve the implemented [M3 contract](docs/phases/M3.md) and ADRs 0006–0010. ADR 0011 remains proposed.
+   preserve the implemented [M3 contract](docs/phases/M3.md) and ADRs 0006–0010. ADR 0011 is accepted;
+   [M4 validation](docs/testing/m4-dashboard.md) records local acceptance and pending CI.
 5. [docs/DEVELOPMENT-TOOLS.md](docs/DEVELOPMENT-TOOLS.md) - CodeGraph freshness, static-analysis coverage
    and profiling appropriate to this repository's runtime.
 

@@ -55,6 +55,9 @@ docker run -d --name "$collector" --network "$network" --read-only --cap-drop AL
   -e QUEUELENS_POSTGRES_DSN=postgresql://queuelens:queuelens@postgres:5432/queuelens \
   -e QUEUELENS_REDIS_URL=redis://redis:6379/0 \
   -e QUEUELENS_ADMIN_TOKEN="$token" -e QUEUELENS_POLL_INTERVAL=100ms \
+  -e QUEUELENS_DASHBOARD_PASSWORD=container-smoke-viewer-password \
+  -e QUEUELENS_DASHBOARD_ORIGIN=http://localhost:8080 \
+  -e QUEUELENS_DASHBOARD_INSECURE_DEV=true \
   "$image" >/dev/null
 port=$(docker port "$collector" 8080/tcp)
 url="http://$port"
@@ -135,6 +138,30 @@ python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["items"]==[], d' <
 curl --fail --silent --show-error --max-time 5 -H "Authorization: Bearer $token" \
   "$url/v1/workers?limit=1" >"$work/workers.json"
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert len(d["items"])==1 and d["items"][0]["worker_id"]=="image-worker" and d["items"][0]["status"]=="alive", d' <"$work/workers.json"
+
+# M4 production assets, read-only session and retained timeline all use the
+# packaged binary. Host/Origin emulate a proxy forwarding its configured host.
+dashboard_headers=(-H 'Host: localhost:8080' -H 'Origin: http://localhost:8080')
+curl --fail --silent --show-error "${dashboard_headers[@]}" "$url/" >"$work/dashboard.html"
+grep -q '<div id="root">' "$work/dashboard.html"
+[[ $(curl --silent --output /dev/null --write-out '%{http_code}' \
+  "${dashboard_headers[@]}" "$url/dashboard/api/overview") == 401 ]]
+curl --fail --silent --show-error "${dashboard_headers[@]}" -c "$work/cookies" \
+  -H 'Content-Type: application/json' --data '{"password":"container-smoke-viewer-password"}' \
+  "$url/dashboard/session" >"$work/session.json"
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["authenticated"] and d["expires_at"], d' <"$work/session.json"
+curl --fail --silent --show-error "${dashboard_headers[@]}" -b "$work/cookies" \
+  "$url/dashboard/api/job?queue=image-smoke&job_id=image-failed" >"$work/timeline.json"
+python3 -c 'import json,sys; d=json.load(sys.stdin); j=d["job"]; assert j["availability"]=="observed" and len(j["attempts"])==1 and j["summary"]["retry_exhausted"] is None, d' <"$work/timeline.json"
+curl --fail --silent --show-error "${dashboard_headers[@]}" -b "$work/cookies" \
+  "$url/dashboard/api/overview" >"$work/overview.json"
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["metrics"]["available"] and d["queues"]["source"]=="last_broker_poll", d' <"$work/overview.json"
+[[ $(curl --silent --output /dev/null --write-out '%{http_code}' \
+  "${dashboard_headers[@]}" -b "$work/cookies" "$url/v1/dashboard/overview") == 401 ]]
+[[ $(curl --silent --output /dev/null --write-out '%{http_code}' \
+  "${dashboard_headers[@]}" -b "$work/cookies" -X DELETE "$url/dashboard/session") == 204 ]]
+[[ $(curl --silent --output /dev/null --write-out '%{http_code}' \
+  "${dashboard_headers[@]}" -b "$work/cookies" "$url/dashboard/api/overview") == 401 ]]
 docker stop --time 10 "$collector" >/dev/null
 [[ $(docker inspect --format '{{.State.ExitCode}}' "$collector") == 0 ]]
-printf 'QueueLens container: nonroot/read-only startup, migrations, Redis polling, auth, identity, lifecycle projection/query routes, heartbeats and shutdown passed.\n'
+printf 'QueueLens container: nonroot/read-only startup, migrations, Redis polling, auth, identity, lifecycle queries, embedded dashboard/session/timeline, heartbeats and shutdown passed.\n'

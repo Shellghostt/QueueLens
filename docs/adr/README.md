@@ -14,7 +14,7 @@ Each file records one decision that was expensive to make and would be expensive
 | [0008](0008-bulk-identity-claims.md) | Bulk identity claims under a bounded writer lock | accepted; refines 0006 |
 | [0009](0009-copy-raw-evidence.md) | COPY raw evidence after fenced identity verification | accepted; refines 0008 |
 | [0010](0010-array-identity-verification.md) | Bounded array input for fenced identity verification | accepted; refines 0009 |
-| [0011](0011-m4-query-and-dashboard-contract.md) | M4 query bounds, dashboard evidence and access | proposed; no implementation |
+| [0011](0011-m4-query-and-dashboard-contract.md) | M4 query bounds, dashboard evidence and access | accepted 2026-11-21; locally implemented M4 |
 
 New ADRs are numbered sequentially and never edited after acceptance. A changed mind gets a new ADR
 that supersedes the old one.

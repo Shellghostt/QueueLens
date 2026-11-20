@@ -2,14 +2,16 @@
 
 > A self-hosted observability platform for distributed background job systems.
 
-![status](https://img.shields.io/badge/status-M3_complete-green)
+![status](https://img.shields.io/badge/status-M4_locally_verified-blue)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
 
-**Status: M3 complete and merged into main.** QueueLens
-collects BullMQ queue state, persists producer event identity, reconstructs retained job attempts
-and serves paginated failure, stall and worker-liveness evidence. Missing telemetry leaves history,
-duration and retry exhaustion unknown. Dashboard, rollups and alerts remain future work.
+**Status: M4 implemented and locally verified on `feat/m4-implementation`; publication and CI pending.**
+QueueLens collects BullMQ state, reconstructs retained attempts and now provides bounded queue/job
+reads, selected-outcome metrics and a React dashboard with separate read-only browser sessions.
+Missing telemetry leaves history, duration and retry exhaustion unknown. Hourly rollups and alerts
+remain M5. [M4 validation](docs/testing/m4-dashboard.md) records the local gates and limits.
+M1–M3 remain merged into main.
 M3 merged through [PR #2](https://github.com/Shellghostt/QueueLens/pull/2) at `12b5940`.
 All eight [post-merge CI jobs](https://github.com/Shellghostt/QueueLens/actions/runs/43823539904)
 passed, including race/build tests on Windows, Ubuntu and macOS.
@@ -36,7 +38,8 @@ job lifecycle directly: enqueued, started, retried, failed, stalled, completed.
 | Observed/suspected stalls and receipt-based worker-down suspicion | M3 | **Done (merged)** |
 | Persistent identity, bounded lifecycle projections and paginated evidence queries | M3 | **Done (merged)** |
 | Checked monthly partition maintenance and raw/history retention | M3 | **Done (merged)** |
-| Dashboard and job timelines | M4 | Not started |
+| Bounded dashboard queries, selected-outcome metrics and job timelines | M4 | **Locally verified; CI pending** |
+| Separate read-only browser session and bounded polling React UI | M4 | **Locally verified; CI pending** |
 | Historical performance analytics | M5 | Not started |
 | Configurable alerting | M5 | Not started |
 | Second queue adapter (Asynq) | M6 | Not started |
@@ -56,6 +59,8 @@ flowchart LR
     SDK --> HB[Heartbeat API]
     HB --> WK[(Worker receipts)]
     WK --> API
+    API --> SESSION[Read-only browser session]
+    SESSION --> WEB[React dashboard]
 ```
 
 Full reasoning, data model, API surface and failure behaviour are in [docs/PLAN.md](docs/PLAN.md).
@@ -68,7 +73,7 @@ application being monitored. Instrumentation that blocks a job is worse than no 
 
 ## Quickstart
 
-Requires Go 1.26+, PostgreSQL 16 and Redis 7.2.
+Requires Go 1.26+, Node 22.22.3 for the embedded dashboard build, PostgreSQL 16 and Redis 7.2.
 
 ```bash
 make build
@@ -184,6 +189,26 @@ Omitted IDs stay unknown. Changed content under a retained queue/ID rejects the 
 batch and increments loss/error counters; HTTP acceptance remains buffer acceptance, not durability.
 Use distinct job IDs throughout retained history; reuse cannot be reliably separated from retries.
 
+### Dashboard
+
+`make build` embeds the React application. Set a separate dashboard password and
+exact HTTPS origin on the server, then open its root URL. Login creates a fixed
+four-hour HttpOnly/Secure/SameSite Strict session. Logout and restart revoke it.
+The browser can read only dashboard views; the shared ingest/admin token stays server-side.
+For HTTP loopback development, explicitly enable `QUEUELENS_DASHBOARD_INSECURE_DEV`.
+Configuration and Vite development instructions are in [web/README.md](web/README.md).
+
+Pages poll every five seconds with cancellation, visibility pause, bounded backoff
+and a visibly stale last read on network failure. Rates count selected retained
+attempt outcomes in a UTC window; broker completed/failed counts remain set sizes.
+Timelines show retained attempt pages, supplied durations/errors, and unknown or
+pruned history. Missing telemetry cannot establish retry exhaustion or worker/job death.
+
+Captured from the packaged local dashboard with actual BullMQ queues and stored
+synthetic observations:
+
+![QueueLens M4 dashboard](docs/images/m4-dashboard.jpg)
+
 ### Environment variables
 
 `QUEUELENS_*` is canonical; the `QUELENS_*` spelling from the plan is accepted as an alias.
@@ -194,6 +219,9 @@ Use distinct job IDs throughout retained history; reuse cannot be reliably separ
 | `QUEUELENS_POSTGRES_DSN` | required | PostgreSQL connection string |
 | `QUEUELENS_REDIS_URL` | required for the BullMQ adapter | Redis URL |
 | `QUEUELENS_ADMIN_TOKEN` | required | Bearer token, at least 16 characters |
+| `QUEUELENS_DASHBOARD_PASSWORD` | unset, dashboard disabled | Separate viewer password, 12–256 bytes, different from admin token |
+| `QUEUELENS_DASHBOARD_ORIGIN` | unset | Exact HTTPS `scheme://host[:port]`; required when dashboard is enabled |
+| `QUEUELENS_DASHBOARD_INSECURE_DEV` | `false` | Explicit HTTP loopback development only, with a distinct cookie |
 | `QUEUELENS_ADAPTERS` | `bullmq` | Comma-separated; an empty list disables the adapters |
 | `QUEUELENS_POLL_INTERVAL` | `5s` | Adapter poll cadence |
 | `QUEUELENS_BUFFER_SIZE` | `10000` | Events that may wait for storage |
@@ -214,6 +242,12 @@ Pruned projections can be reconstructed with limited-history evidence; very long
 lose old projected history. See [ADR 0006](docs/adr/0006-lifecycle-identity-and-retention.md).
 
 ## Measured performance
+
+M4's 100-queue / 100,000-job / 300,000-attempt 30-day query workload passed with
+concurrent real ingest, projection and pruning: **252/252 successful requests**, overall p95
+**67.39 ms**, slowest view p95 **71.20 ms**, and zero unavailable metrics. Native Windows race,
+the unchanged 60-second load, storage and Linux SDK overhead gates passed locally.
+Full plans, samples and limits are in [M4 measurements](docs/benchmarks/m4-dashboard.md).
 
 The M2 dead-collector workload, latency and allocation measurements are documented in
 [docs/benchmarks/m2-sdk-overhead.md](docs/benchmarks/m2-sdk-overhead.md). SDK integration and
@@ -256,6 +290,7 @@ buffer acceptance. Method, SDK regression numbers and limits are in the
 | `internal/collector` | Ingest pipeline, bounded buffer, backpressure |
 | `internal/store` | Atomic identity/COPY persistence, bounded projector/queries, retention and partitioning |
 | `internal/lifecycle` | Pure attempt folding, evidence schemas and suspicion policy |
+| `internal/dashboard` | Bounded M4 response/query contracts |
 | `internal/poller` | Drives the adapters and isolates their failures |
 | `internal/queues` | The last known state of every queue |
 | `internal/api` | The HTTP API |
@@ -275,15 +310,15 @@ M3 is **complete and merged**, with local and post-merge CI verification. Read t
 and [development-tool audit](docs/DEVELOPMENT-TOOLS.md) before continuing.
 The documentation also merged through [PR #4](https://github.com/Shellghostt/QueueLens/pull/4), with
 successful [current main CI](https://github.com/Shellghostt/QueueLens/actions/runs/43827229518).
-[M4 requirements](docs/phases/M4.md) and [proposed query/dashboard ADR](docs/adr/0011-m4-query-and-dashboard-contract.md)
-prepare the remaining queries and UI; M4 implementation has not started.
+[M4 requirements](docs/phases/M4.md), accepted [query/dashboard ADR](docs/adr/0011-m4-query-and-dashboard-contract.md)
+and [validation](docs/testing/m4-dashboard.md) record the locally implemented dashboard and remaining CI gate.
 
 | Milestone | Deliverable | Status |
 |---|---|---|
 | M1 | Adapter interface, Redis adapter and event collection | **Done** (v0.1.0) |
 | M2 | Worker instrumentation and heartbeat storage | **Done (merged)** |
 | M3 | Persistent identity, lifecycle evidence and checked retention | **Done (merged)** |
-| M4 | Dashboard with queue state and job timelines | Not started; documents prepared |
+| M4 | Dashboard with queue state and job timelines | **Locally verified; publication/CI pending** |
 | M5 | Historical rollups, metrics and alerts | Not started |
 | M6 | Horizontal scaling and Asynq adapter | Not started |
 

@@ -10,3 +10,5 @@ sdk/typescript/dist
 *.exe
 *.out
 coverage.*
+web/dist
+.tmp

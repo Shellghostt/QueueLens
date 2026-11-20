@@ -2,7 +2,8 @@
 
 Audit date: 2026-11-14. These are development aids, not product features or substitutes for tests.
 Read [PLAN.md](PLAN.md), the [M4 requirements](phases/M4.md), implemented [M3 contract](phases/M3.md)
-and accepted [ADRs](adr/) first. M4 ADR 0011 remains proposed.
+and accepted [ADRs](adr/) first. M4 ADR 0011 is accepted; its local checks are in
+[M4 validation](testing/m4-dashboard.md).
 
 ## CodeGraph
 
@@ -51,10 +52,17 @@ Profile only when the change or suspected fault justifies it; a documentation ed
 
 ## M4 implementation validation
 
-Use browser/Node profiles for repeated dashboard navigation, polling, aborts, filters and paginated
-cache cleanup. Include real frontend sources in separately pinned static analysis once they exist;
-the current MemGuard fixture check does not cover a future dashboard. Measure Go/PostgreSQL query
-bounds/latency under projection/retention and retain SDK/storage budgets. These are future M4 gates.
+The M4 frontend pins MemGuard 0.2.0 separately. `make web-check` analyzed 12 frontend
+files with zero reported issues and ran 12 deterministic client/UI tests for polling,
+abort/generation guards, hidden/backoff behavior, byte/item/cache bounds, expiry and teardown.
+The fixed-expiry teardown waits one jsdom animation frame before checking zero timers.
+Actual embedded browser checks cover navigation, filters, paging, text safety, keyboard/mobile,
+stale reads and restart/logout. These are not an unmeasured heap-leak claim.
+
+Go/PostgreSQL query plans/latency under real concurrent projection/maintenance, the
+60-second live-heap/projection sample and unchanged Linux SDK/storage budgets are in
+[M4 measurements](benchmarks/m4-dashboard.md). The npm postinstall isolates dependency
+Go sources with an ignored nested module marker so canonical Go discovery stays scoped.
 
 ## Memory Analyzer
 

@@ -59,6 +59,19 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.3'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build embedded dashboard on this OS
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+          npm --prefix web run check:assets
+          go build -tags dashboard ./...
+
   integration:
     name: Integration (PostgreSQL and Redis)
     runs-on: ubuntu-latest
@@ -156,6 +169,31 @@ jobs:
         with:
           version: v2.15.0
           args: --timeout=10m
+
+  frontend:
+    name: Dashboard lint, types, tests, audit and assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.3'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Verify frontend
+        working-directory: web
+        env:
+          QUEUELENS_ADMIN_TOKEN: m4-synthetic-admin-token
+          QUEUELENS_DASHBOARD_PASSWORD: m4-synthetic-viewer-password
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm test
+          npm audit
+          npm run memory:check
+          npm run build
+          npm run check:assets
 
   security:
     name: Vulnerability scan

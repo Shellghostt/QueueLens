@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"time"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/shellghostt/queuelens/internal/collector"
 	"github.com/shellghostt/queuelens/internal/config"
+	"github.com/shellghostt/queuelens/internal/dashboard"
 	"github.com/shellghostt/queuelens/internal/lifecycle"
 	"github.com/shellghostt/queuelens/internal/metrics"
 	"github.com/shellghostt/queuelens/internal/queues"
@@ -41,20 +43,24 @@ type Server struct {
 	now       func() time.Time
 	heartbeat func(context.Context, protocol.Heartbeat) error
 	lifecycle lifecycle.Reader
+	dashboard dashboard.Reader
 }
 
 // Options configures a server.
 type Options struct {
-	Collector *collector.Collector
-	Queues    *queues.Store
-	Metrics   *metrics.Metrics
-	Ping      Ping
-	Token     string
-	Version   string
-	Logger    *slog.Logger
-	Now       func() time.Time
-	Heartbeat func(context.Context, protocol.Heartbeat) error
-	Lifecycle lifecycle.Reader
+	Collector       *collector.Collector
+	Queues          *queues.Store
+	Metrics         *metrics.Metrics
+	Ping            Ping
+	Token           string
+	Version         string
+	Logger          *slog.Logger
+	Now             func() time.Time
+	Heartbeat       func(context.Context, protocol.Heartbeat) error
+	Lifecycle       lifecycle.Reader
+	Dashboard       dashboard.Reader
+	DashboardAccess config.DashboardAccess
+	DashboardAssets fs.FS
 }
 
 // New builds the HTTP handler.
@@ -86,6 +92,7 @@ func New(opts Options) http.Handler {
 		now:       opts.Now,
 		heartbeat: opts.Heartbeat,
 		lifecycle: opts.Lifecycle,
+		dashboard: opts.Dashboard,
 	}
 
 	router := chi.NewRouter()
@@ -104,8 +111,12 @@ func New(opts Options) http.Handler {
 		private.Get("/v1/jobs/stalled", server.handleStalledJobs)
 		private.Get("/v1/jobs/suspected-stalled", server.handleSuspectedStalls)
 		private.Get("/v1/workers", server.handleWorkers)
+		for _, view := range []string{"overview", "queues", "queue", "jobs", "job"} {
+			private.Get("/v1/dashboard/"+view, server.handleDashboard(view))
+		}
 	})
 
+	server.registerBrowser(router, opts.DashboardAccess, opts.DashboardAssets)
 	return router
 }
 
