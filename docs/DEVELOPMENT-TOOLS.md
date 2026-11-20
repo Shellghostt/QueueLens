@@ -1,7 +1,9 @@
 # Development tools and memory validation
 
 Audit date: 2026-11-14. These are development aids, not product features or substitutes for tests.
-Read [PLAN.md](PLAN.md), the [M3 requirements](phases/M3.md) and accepted [ADRs](adr/) first.
+Read [PLAN.md](PLAN.md), the [M4 requirements](phases/M4.md), implemented [M3 contract](phases/M3.md)
+and accepted [ADRs](adr/) first. M4 ADR 0011 is accepted; its local checks are in
+[M4 validation](testing/m4-dashboard.md).
 
 ## CodeGraph
 
@@ -12,6 +14,9 @@ The previous index was still at M1. Check freshness when switching branches or p
 codegraph status
 codegraph sync
 ```
+
+On 2026-11-17, `codegraph status` reported the existing index up to date against merged M3 source.
+No new index or generated source was created for M4 preparation.
 
 For indexed code, use the CodeGraph MCP exploration tool with this repository's absolute
 `projectPath` and the symbol/flow you need. Read its returned source and callers before edits;
@@ -44,6 +49,20 @@ active handles as applicable, and latency/drop metrics. Go benchmarks can collec
 heap snapshots/inspector; Python supports `tracemalloc`. Choose the native tool for the process.
 Record versions, duration, inputs, commands and limitations in a validation report.
 Profile only when the change or suspected fault justifies it; a documentation edit needs link/diff checks.
+
+## M4 implementation validation
+
+The M4 frontend pins MemGuard 0.2.0 separately. `make web-check` analyzed 12 frontend
+files with zero reported issues and ran 12 deterministic client/UI tests for polling,
+abort/generation guards, hidden/backoff behavior, byte/item/cache bounds, expiry and teardown.
+The fixed-expiry teardown waits one jsdom animation frame before checking zero timers.
+Actual embedded browser checks cover navigation, filters, paging, text safety, keyboard/mobile,
+stale reads and restart/logout. These are not an unmeasured heap-leak claim.
+
+Go/PostgreSQL query plans/latency under real concurrent projection/maintenance, the
+60-second live-heap/projection sample and unchanged Linux SDK/storage budgets are in
+[M4 measurements](benchmarks/m4-dashboard.md). The npm postinstall isolates dependency
+Go sources with an ignored nested module marker so canonical Go discovery stays scoped.
 
 ## Memory Analyzer
 

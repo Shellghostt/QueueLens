@@ -7,14 +7,26 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 POSTGRES_DSN ?= postgresql://queuelens:queuelens@127.0.0.1:55433/queuelens
 REDIS_URL ?= redis://127.0.0.1:56379/0
 
-.PHONY: bootstrap build test race integration bench loadtest m3-load lint fmt vet memory-check run docker db-up db-down fixture sdk-test sdk-bench clean
+.PHONY: bootstrap build test race integration bench loadtest m3-load m4-bench lint fmt vet memory-check run docker db-up db-down fixture sdk-test sdk-bench web-install web-test web-build web-check clean
 
 bootstrap:
 	go mod download
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 
-build:
-	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/queuelens
+build: web-build
+	go build -tags dashboard -trimpath -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/queuelens
+
+web-install:
+	cd web && npm ci
+
+web-test: web-install
+	cd web && npm run lint && npm run typecheck && npm test && npm run memory:check
+
+web-build: web-install
+	cd web && npm run build && npm run check:assets
+
+web-check: web-test web-build
+	cd web && npm audit
 
 
 test:
@@ -61,6 +73,11 @@ m3-load: export QUEUELENS_RUN_M3_LOAD = 1
 m3-load: export QUEUELENS_TEST_DATABASE_URL = $(POSTGRES_DSN)
 m3-load:
 	go test -count=1 -timeout=180s -v ./tests/integration -run "^TestLifecycleSustainedProjectionMemoryAndLag$$"
+
+m4-bench: export QUEUELENS_RUN_M4_BENCH = 1
+m4-bench: export QUEUELENS_TEST_DATABASE_URL = $(POSTGRES_DSN)
+m4-bench:
+	go test -count=1 -timeout=180s -v ./tests/integration -run "^TestDashboard(ThirtyDayQueryBudget|MetricWorkLimit)$$"
 
 lint: fmt vet
 	golangci-lint run ./...

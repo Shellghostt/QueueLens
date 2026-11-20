@@ -215,16 +215,18 @@ func mergeProjections(ctx context.Context, tx pgx.Tx, groups map[attemptKey]life
 		}
 		run = lifecycle.ReplaceAttempt(run, previous, next)
 		runs[key.jobKey] = run
-		updates = append(updates, attemptUpdate{attemptKey: key, Summary: next})
+		updates = append(updates, attemptUpdate{attemptKey: key, Summary: next,
+			SelectedState: next.Selected.State, SelectedAt: next.Selected.TS.UTC().Truncate(time.Microsecond), SelectedConflict: next.Evidence.TerminalConflict})
 	}
 	attemptJSON, err := json.Marshal(updates)
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO job_attempts (queue,job_id,attempt,summary)
-		SELECT queue,job_id,attempt,summary FROM jsonb_to_recordset($1::jsonb)
-		AS changed(queue text,job_id text,attempt smallint,summary jsonb)
-		ON CONFLICT (queue,job_id,attempt) DO UPDATE SET summary=EXCLUDED.summary`, attemptJSON); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO job_attempts (queue,job_id,attempt,summary,selected_state,selected_at,selected_conflict)
+		SELECT queue,job_id,attempt,summary,selected_state,selected_at,selected_conflict FROM jsonb_to_recordset($1::jsonb)
+		AS changed(queue text,job_id text,attempt smallint,summary jsonb,selected_state text,selected_at timestamptz,selected_conflict boolean)
+		ON CONFLICT (queue,job_id,attempt) DO UPDATE SET summary=EXCLUDED.summary,
+			selected_state=EXCLUDED.selected_state,selected_at=EXCLUDED.selected_at,selected_conflict=EXCLUDED.selected_conflict`, attemptJSON); err != nil {
 		return err
 	}
 	runUpdates := make([]runUpdate, 0, len(runs))
@@ -255,7 +257,10 @@ func mergeProjections(ctx context.Context, tx pgx.Tx, groups map[attemptKey]life
 
 type attemptUpdate struct {
 	attemptKey
-	Summary lifecycle.Attempt `json:"summary"`
+	Summary          lifecycle.Attempt `json:"summary"`
+	SelectedState    protocol.State    `json:"selected_state"`
+	SelectedAt       time.Time         `json:"selected_at"`
+	SelectedConflict bool              `json:"selected_conflict"`
 }
 type runUpdate struct {
 	jobKey

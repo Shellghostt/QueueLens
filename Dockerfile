@@ -1,10 +1,19 @@
-FROM golang:1.26-alpine AS build
+FROM node:22.22.3-alpine AS frontend
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+COPY web/scripts/isolate-go-dependencies.mjs ./scripts/isolate-go-dependencies.mjs
+RUN npm ci
+COPY web/ ./
+RUN npm run build && npm run check:assets
+
+FROM golang:1.26.11-alpine AS build
 ARG VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+COPY --from=frontend /web/dist ./web/dist
+RUN CGO_ENABLED=0 go build -tags dashboard -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
       -o /out/queuelens ./cmd/queuelens
 
 FROM gcr.io/distroless/static-debian12:nonroot

@@ -5,6 +5,7 @@
 package queues
 
 import (
+	"errors"
 	"sort"
 	"sync"
 	"time"
@@ -109,6 +110,46 @@ func (s *Store) List() []View {
 	}
 	sort.Slice(views, func(i, j int) bool { return views[i].Queue < views[j].Queue })
 	return views
+}
+
+// Page visits at most 10,000 views and retains only limit+1 ordered candidates.
+// Go string order compares UTF-8 bytes, matching PostgreSQL COLLATE "C".
+func (s *Store) Page(after string, limit int) ([]View, map[string]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if limit < 1 || limit > 200 || len(s.views) > 10000 || len(s.errors) > 64 {
+		return nil, nil, errors.New("bounded broker page unavailable")
+	}
+	views := make([]View, 0, limit+1)
+	for name, view := range s.views {
+		if name <= after {
+			continue
+		}
+		index := sort.Search(len(views), func(i int) bool { return views[i].Queue >= name })
+		if index > limit {
+			continue
+		}
+		if len(views) < limit+1 {
+			views = append(views, View{})
+		}
+		copy(views[index+1:], views[index:])
+		views[index] = view
+	}
+	errorsCopy := make(map[string]string, len(s.errors))
+	for name, message := range s.errors {
+		errorsCopy[name] = message
+	}
+	return views, errorsCopy, nil
+}
+
+func (s *Store) Get(name string) *View {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	view, found := s.views[name]
+	if !found {
+		return nil
+	}
+	return &view
 }
 
 // Errors returns the last error of every adapter that failed.

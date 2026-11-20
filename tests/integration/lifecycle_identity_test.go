@@ -52,7 +52,7 @@ func TestLifecycleMigrationPreservesM2AndOldCOPY(t *testing.T) {
 	if err := f.conn.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&versions); err != nil {
 		t.Fatal(err)
 	}
-	if count != 2 || legacy != 2 || versions != 3 {
+	if count != 2 || legacy != 2 || versions != 4 {
 		t.Fatalf("rows=%d legacy=%d migrations=%d", count, legacy, versions)
 	}
 	var indexes int

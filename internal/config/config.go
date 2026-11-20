@@ -81,6 +81,7 @@ type Config struct {
 	FlushEvery  time.Duration
 	LogLevel    string
 	Lifecycle   lifecycle.Policy
+	Dashboard   DashboardAccess
 }
 
 // Error is a configuration problem. It is a usage error, not a runtime one.
@@ -196,6 +197,9 @@ func LoadFrom(environ []string) (Config, error) {
 	}
 
 	if err := loadLifecycle(env, &cfg.Lifecycle); err != nil {
+		return Config{}, err
+	}
+	if err := loadDashboard(env, &cfg); err != nil {
 		return Config{}, err
 	}
 	if cfg.PostgresDSN == "" {

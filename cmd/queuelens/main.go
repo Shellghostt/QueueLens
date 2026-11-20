@@ -37,6 +37,7 @@ import (
 	"github.com/shellghostt/queuelens/internal/queues"
 	"github.com/shellghostt/queuelens/internal/store"
 	"github.com/shellghostt/queuelens/pkg/protocol"
+	"github.com/shellghostt/queuelens/web"
 )
 
 // version is overridden at build time with:
@@ -158,16 +159,20 @@ func runServe(args []string) error {
 		go poll.Run(ctx)
 	}
 
+	reader := store.NewReader(db, cfg.Lifecycle, cfg.AdminToken)
 	handler := api.New(api.Options{
-		Collector: ingest,
-		Queues:    queueStore,
-		Metrics:   metricSet,
-		Ping:      db.Ping,
-		Token:     cfg.AdminToken,
-		Version:   version,
-		Logger:    logger,
-		Heartbeat: db.Heartbeat,
-		Lifecycle: store.NewReader(db, cfg.Lifecycle, cfg.AdminToken),
+		Collector:       ingest,
+		Queues:          queueStore,
+		Metrics:         metricSet,
+		Ping:            db.Ping,
+		Token:           cfg.AdminToken,
+		Version:         version,
+		Logger:          logger,
+		Heartbeat:       db.Heartbeat,
+		Lifecycle:       reader,
+		Dashboard:       reader,
+		DashboardAccess: cfg.Dashboard,
+		DashboardAssets: web.Assets(),
 	})
 
 	server := &http.Server{

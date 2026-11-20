@@ -13,7 +13,7 @@ depends_on:
   - Redis 7.2
   - BullMQ (first supported queue ecosystem)
 created: 2026-11-13
-updated: 2026-11-16
+updated: 2026-11-21
 ---
 
 # QueueLens — Implementation Plan
@@ -32,13 +32,21 @@ including Windows/Ubuntu/macOS race.
 The [M3 requirements](phases/M3.md) are the acceptance contract, with decisions in ADRs 0006–0010.
 [Validation](testing/m3-lifecycle.md) and [measurements](benchmarks/m3-lifecycle.md) record actual gates,
 diagnosed failures and limits. The [development-tool audit](DEVELOPMENT-TOOLS.md) describes optional aids.
+The M3 documentation is also merged through [PR #4](https://github.com/Shellghostt/QueueLens/pull/4);
+current main is `209707149e25701d8b4f8c896d6402226498cd3d`, with successful
+[main CI](https://github.com/Shellghostt/QueueLens/actions/runs/43827229518).
+M4 is **implemented and verified locally and in CI** on `feat/m4-implementation`.
+[PR #5](https://github.com/Shellghostt/QueueLens/pull/5) is open and unmerged.
+[M4 requirements](phases/M4.md), accepted [ADR 0011](adr/0011-m4-query-and-dashboard-contract.md),
+[validation](testing/m4-dashboard.md) and [measurements](benchmarks/m4-dashboard.md) map the bounded
+queries, selected-outcome read model, browser sessions, polling UI and actual gates.
 
 ```yaml
 project: QueueLens
 status: mvp
 version: 0.1.0
 builds: true
-functional: partial            # collection, lifecycle evidence and retention work; dashboard/rollups remain
+functional: partial            # M1–M4 verified; M4 merge and M5 analytics/alerts remain
 
 implemented:
   - repository skeleton
@@ -61,11 +69,12 @@ implemented:
   - authenticated paginated failure/stall/worker evidence, signed cursors and bounded lag queries
   - explicit stall and configurable receipt-based job/worker suspicion without retry-exhaustion inference
   - checked UTC monthly partition maintenance and raw/history retention with durable bounded pruning
+  - bounded queue/job/attempt reads and indexed selected-outcome metric windows
+  - separate read-only browser sessions and embedded cancellable polling React dashboard
 
 not_implemented:
   - metrics_hourly, alert_rules, alerts_fired tables
   - analytics and rollups
-  - dashboard
   - alerting
   - additional adapters (sqs, celery, sidekiq)
   - full prometheus exporter
@@ -140,7 +149,8 @@ queue overview and job timeline.
 
 ### v1.0 (M5–M6)
 
-Latency analytics, alerting, retention and partitioning, horizontal scaling, Asynq adapter, v1.0.0.
+Latency analytics, alerting, horizontal scaling, Asynq adapter, v1.0.0. Retention/partitioning are
+already implemented in M3; later milestones build on those contracts.
 
 ### Post-1.0
 
@@ -328,10 +338,12 @@ Query API:
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/v1/queues` | Queue list with depth, throughput, failure rate |
-| GET | `/v1/queues/{queue}` | Detail, last 24 h series |
-| GET | `/v1/queues/{queue}/jobs` | Cursor-paginated jobs by state |
-| GET | `/v1/jobs/{queue}/{job_id}` | Job plus attempt timeline |
+| GET | `/v1/queues` | Existing unpaginated live broker counts/depth; no historical rates |
+| GET | `/v1/dashboard/overview` | Bounded broker page plus selected-outcome metrics |
+| GET | `/v1/dashboard/queues` | Bounded broker queue page |
+| GET | `/v1/dashboard/queue` | Exact `queue` parameter; optional broker, metrics and job page |
+| GET | `/v1/dashboard/jobs` | Exact optional queue and observed-state filters |
+| GET | `/v1/dashboard/job` | Exact queue/job parameters and separately paginated attempts |
 | GET | `/v1/workers` | Worker list with last heartbeat |
 | GET | `/v1/jobs/failed` | M3 paginated observed-failure evidence |
 | GET | `/v1/jobs/stalled` | M3 paginated explicit-stall evidence |
@@ -341,7 +353,7 @@ Query API:
 | GET | `/v1/alerts` | Fired alerts |
 | GET | `/healthz`, `/readyz`, `/metrics` | Operational |
 
-Auth: `Authorization: Bearer <token>` from `QUELENS_ADMIN_TOKEN`. The collector accepts the same token; v1 has
+Auth: `Authorization: Bearer <token>` from `QUEUELENS_ADMIN_TOKEN` (legacy `QUELENS_*` aliases remain). The collector accepts the same token; v1 has
 no separate ingest key.
 
 Ingest response: `202 {"accepted": 1000, "dropped": 0}`. On saturation: `429` with `Retry-After: 1`.
@@ -351,8 +363,12 @@ Implemented in M1: `POST /v1/events`, `GET /v1/queues`, `GET /healthz`, `GET /re
 `GET /metrics`. M2 also implements `POST /v1/workers/heartbeat` for receipt-time persistence.
 M3 implements `/v1/jobs/failed`, `/v1/jobs/stalled`, `/v1/jobs/suspected-stalled` and `/v1/workers`.
 They default to 100 items, cap at 200 and expose opaque signed cursors, evaluation time, lag and
-history limitations. Every other query path above is planned for M4/M5 and does not exist yet;
-`api/openapi.yaml` lists only the paths that are registered in the code.
+history limitations. M4 adds the five `/v1/dashboard/*` routes above; legacy `/v1/queues` is unchanged.
+The six same-origin `/dashboard/api/{overview,queues,queue,jobs,job,workers}` read routes use a separate
+browser session. `POST/GET/DELETE /dashboard/session` provide login/bootstrap/logout. Parameters,
+resource bounds, read-only session policy and rate meaning follow accepted ADR 0011. Broker retained
+set sizes are not monotonic counters. Timeseries and alert paths remain planned M5; OpenAPI lists
+only implemented API paths.
 
 One addition to the response shape: `rejected` holds one entry per rejected event
 (`{"index": 1, "id": "...", "reason": "job_id: is required"}`), so a producer can tell which event to
@@ -554,13 +570,20 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 
 **Deliverable:** React dashboard: overview, queue detail, job timeline, workers.
 
+Status: **Implemented and verified locally and in CI; PR #5 open/unmerged.** Accepted
+[ADR 0011](adr/0011-m4-query-and-dashboard-contract.md) preceded code. The
+[validation record](testing/m4-dashboard.md) maps every phase criterion to tests, browser checks,
+measurements and passing branch/PR CI. QL-019's existing M3 routes are preserved.
+
 **Acceptance criteria**
 
-- [ ] Overview shows depth, throughput and failure rate for every queue
-- [ ] Job timeline renders every attempt with duration and error
-- [ ] Dashboard p95 query < 300 ms for 30 days of hourly rollups
-- [ ] No unbounded table: every list is paginated
-- [ ] One screenshot in the README from a real local run
+- [x] Overview shows observed depth/selected-outcome rates with explicit UTC windows, denominators and stale/unknown states
+- [x] Job timeline renders every retained attempt across pages, supplied duration/error and incomplete/pruned/reuse evidence
+- [x] Dashboard p95 query < 300 ms over a declared 30-day retained-summary workload with concurrent projection/maintenance
+- [x] No unbounded table: every list is paginated
+- [x] Auth, safe rendering, cancellation/cache bounds and browser checks preserve M3 query/SDK/retention contracts locally
+- [x] One screenshot in the README from a real local run
+- [x] Windows/Ubuntu/macOS and frontend CI pass after publication (all nine checks at `af857aa`; links in validation)
 
 ### M5 — Metrics, alerts, analytics
 
@@ -573,6 +596,7 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 - [ ] Alert resolves automatically when the condition clears
 - [ ] Prometheus endpoint exposes queue depth, failure rate and collector lag
 - [ ] Analytics queries use rollups, never scan raw partitions
+- [ ] Dashboard p95 query < 300 ms for 30 days of hourly rollups after QL-023; record real workload/hardware
 
 ### M6 — Scale and second adapter
 
@@ -612,10 +636,10 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 | QL-017 | Observed/suspected stalls and worker-down suspicion | QL-015 | M3 | Done (merged) |
 | QL-018 | Retention and partition maintenance | QL-008 | M3 | Done (merged) |
 | QL-018A | Paginated failed/stalled/worker views and API contract | QL-017 | M3 | Done (merged) |
-| QL-019 | Query API: queues and jobs | QL-015 | M4 | Partly done: `GET /v1/queues` exists |
-| QL-020 | Dashboard scaffolding | QL-019 | M4 | Not started |
-| QL-021 | Overview and queue detail views | QL-020 | M4 | Not started |
-| QL-022 | Job timeline view | QL-021 | M4 | Not started |
+| QL-019 | Bounded queue/job/attempt queries and observed metric windows | QL-015, QL-018A | M4 | Verified locally/CI; PR #5 open |
+| QL-020 | Dashboard scaffolding | QL-019 | M4 | Verified locally/CI; PR #5 open |
+| QL-021 | Overview, queue detail and worker evidence views | QL-020 | M4 | Verified locally/CI; PR #5 open |
+| QL-022 | Paginated retained-attempt timeline and history limitations | QL-019, QL-021 | M4 | Verified locally/CI; PR #5 open |
 | QL-023 | Hourly rollups and percentiles | QL-015 | M5 | Not started |
 | QL-024 | Alert rule evaluation and dedup | QL-023 | M5 | Not started |
 | QL-025 | Alert notification channel | QL-024 | M5 | Not started |
@@ -634,7 +658,8 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 - **Overhead benchmark** is a CI job with a fixed workload; regression beyond budget fails the build.
 - **Kill tests:** kill the collector, kill the collector mid-batch, kill Redis. The application must not
   notice beyond a dropped-event counter.
-- **Query budget tests** assert dashboard queries never scan raw partitions.
+- **Query budget tests** assert dashboard history/metric queries read bounded summaries, not raw partition
+  scans. Existing capped projection-lag sampling is separate and retains its own bounds/unknown behavior.
 
 ---
 
@@ -644,8 +669,8 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 |---|---|
 | Collector used as an injection point | Strict schema validation, bounded batch, `queue`/`job_id` length limits |
 | Error strings contain secrets | 1 KiB cap, redaction of common token patterns, documented as best-effort |
-| Dashboard exposed publicly | Single admin token, `Secure` cookie optional, docs say "put it behind your SSO" |
-| SQL injection via queue names | Parameterised queries only; queue names filtered by regex |
+| Dashboard exposed publicly | Separate viewer password, exact HTTPS origin, bounded opaque HttpOnly/Secure/SameSite Strict sessions and read-only dispatch |
+| SQL injection via queue names | Parameterized queries, exact bounded UTF-8 identities and allowlisted filters |
 | Storage exhaustion | Retention, partitioning, ingest limit, 429 |
 | Adapter credentials | Read from environment, never logged |
 
@@ -674,7 +699,8 @@ unconditional two-poll claim with bounded replay and explicit lag; backlog can d
 and persists successful batches atomically in PostgreSQL. The BullMQ adapter reads real queue counts from Redis. The
 Go and TypeScript SDKs emit events and heartbeats; the load generator can drive the collector and
 report what happened. M3 adds retained lifecycle folding, paginated evidence and checked retention.
-There is no dashboard, rollup analytics, alert rule or second adapter.
+M4 adds bounded dashboard reads, selected-outcome caches and browser sessions with locally verified UI.
+Rollup analytics, alert rules and a second adapter remain future work.
 M3 is merged through PR #2 with verified post-merge CI; no new tagged release is claimed.
 
 **Rules:**

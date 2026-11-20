@@ -1,12 +1,16 @@
 # QueueLens Architecture
 
-**Status: M3 complete and merged into main, with local and post-merge CI verification.**
+**Status: M4 implemented/verified locally and in CI on `feat/m4-implementation`; [PR #5](https://github.com/Shellghostt/QueueLens/pull/5) is open/unmerged.**
+M1–M3 remain complete and merged into main, with local and post-merge CI verification.
 [PR #2](https://github.com/Shellghostt/QueueLens/pull/2) merged at `12b5940` with the exact tested M3 tree.
 The collector, BullMQ adapter, both SDKs, producer-identity ledger, bounded job projections,
-failure/stall/worker queries and checked retention exist. SDK/protocol source is unchanged from M2.
-Dashboard, rollup analytics and alerts remain future work. The authoritative specification is
+failure/stall/worker queries and checked retention exist. M2 SDK/protocol wire semantics are preserved;
+Go SDK recovery follows ADR 0005.
+The bounded dashboard, timelines, selected-outcome cache and separate browser sessions now exist.
+Rollup analytics and alerts remain M5. The authoritative specification is
 [PLAN.md](PLAN.md), [M3 requirements](phases/M3.md) and accepted ADRs; verification is in
 [M3 validation](testing/m3-lifecycle.md).
+M4 evidence is in [validation](testing/m4-dashboard.md) and [measurements](benchmarks/m4-dashboard.md).
 
 ## Context
 
@@ -48,6 +52,8 @@ flowchart LR
     FOLD --> RUN[(job_runs / job_attempts)]
     RUN --> API
     WK --> API
+    API --> SESSION[read-only browser session]
+    SESSION --> WEB[embedded React dashboard]
 ```
 
 | Package | Responsibility |
@@ -60,6 +66,8 @@ flowchart LR
 | `internal/collector` | Validate, redact, buffer, batch. No business logic, no unbounded buffering: a full buffer drops the newest events, counts them and answers 429. |
 | `internal/store` | Atomic identity verification and durable COPY; bounded projector, paginated queries, checked partition maintenance and retention. |
 | `internal/lifecycle` | Pure deterministic attempt summaries, evidence response types and receipt-based suspicion policy. |
+| `internal/dashboard` | M4 bounds, exact query/filter contracts and combined evidence response types. |
+| `web` | React/TypeScript polling client, accessible views and optional Go embedded assets. |
 | `sdk/go`, `sdk/typescript` | Bounded asynchronous metadata transport, batching, heartbeats and worker drop counters. |
 | `internal/api` | Authenticated ingest, heartbeat, queue list and four paginated lifecycle/worker routes; operational endpoints. |
 | `internal/loadgen` | The load generator, so that throughput claims come from a measurement. |
@@ -141,3 +149,32 @@ Native Windows race passes with x64 GCC; CI also passed race/build tests on Wind
 Publication/run links are in validation and the
 [post-merge CI run](https://github.com/Shellghostt/QueueLens/actions/runs/43823539904).
 No new tagged release is claimed.
+
+## M4 reads and browser access
+
+Accepted [ADR 0011](adr/0011-m4-query-and-dashboard-contract.md) adds five authenticated
+`/v1/dashboard/*` routes. Overview and queue detail combine bounded broker/job pages with selected
+outcome metrics; job detail combines a retained run and a separately paginated attempt page.
+Exact UTF-8 identities are query parameters. Signed cursors bind route/filter/window/job/time,
+lists cap at 200, raw queries at 12 KiB and buffered responses at 2 MiB. Run and attempts share
+a read-only REPEATABLE READ snapshot so concurrent pruning cannot expose half-deleted histories.
+
+Migration 0004 backfills indexed selected state/time/conflict caches and the projector updates
+them atomically with unchanged M3 summaries. Selected supplied timestamps are floored to
+microseconds before database parsing to preserve whole-second window membership; original
+JSON precision remains. Metrics use UTC 1h/24h/7d/30d windows, exclude pruning runs and cap work
+at 500,000 terminal attempts plus a sentinel and 150 ms. Missing cache, history coverage,
+overflow or timeout is unavailable/null. Throughput/failure fractions describe retained selected
+attempts, never broker set deltas or complete production-job history. The existing lag sampler
+stays a separate bounded raw-receipt query.
+
+Opt-in browser access uses a separate password, exact origin/host, opaque in-memory four-hour
+sessions and HttpOnly/Secure/SameSite Strict production cookies. A fixed read-only six-route
+dispatch exposes the same handlers plus M3 worker reads. Bearer ingestion/admin credentials
+stay on the server. Explicit HTTP loopback development uses a distinct cookie.
+
+The React client requests one view at a time, keeps one bounded page, polls every five seconds,
+aborts route/filter/unmount changes, pauses hidden tabs and backs off failed reads while retaining
+visible stale data. Unauthorized/logout/expiry clears the view; timers/listeners are released.
+Metadata renders as text. Make/container production builds embed locked Vite assets behind a
+Go build tag; ordinary headless Go builds remain compatible. Hourly rollups/alerts remain M5.

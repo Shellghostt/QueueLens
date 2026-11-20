@@ -3,7 +3,7 @@ info:
   title: QueueLens API
   version: 0.1.0
   description: |
-    Status: M3, unreleased. Only implemented paths appear here.
+    Status: M4 implementation, unreleased. Only implemented paths appear here.
     Adding a path before implementing it is treated as a documentation bug.
 
     The collector and the query API share one bearer token. Every path that
@@ -20,6 +20,189 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /v1/dashboard/overview:
+    get: &DashboardOverview
+      summary: One broker queue page and selected retained attempt outcomes
+      description: |
+        M4 queries accept only the listed single-valued parameters (no duplicates),
+        at most 12 KiB raw query and 4 KiB cursor. Pages default to 100/max 200;
+        buffered responses cap at 2 MiB and reads at three seconds. Broker paging
+        visits at most 10,000 views and materializes at most 201 candidates.
+        C-order pages are live, not a snapshot across requests. Metric time is
+        the selected producer-supplied timestamp in UTC [from, until), ending
+        at the cursor evaluation tick. An unavailable rate is null, never zero.
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+        - $ref: '#/components/parameters/MetricWindow'
+      responses: &DashboardResponses
+        '200':
+          description: Bounded data and retained-history/lag/clock limitations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardResponse' }
+        '400': { $ref: '#/components/responses/InvalidPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/QueryUnavailable' }
+  /v1/dashboard/queues:
+    get: &DashboardQueues
+      summary: Bounded C-order broker queue page
+      description: Same M4 parameter, response, deadline and cursor bounds as overview. Preserves legacy /v1/queues.
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses: *DashboardResponses
+  /v1/dashboard/queue:
+    get: &DashboardQueue
+      summary: Optional broker view, selected-outcome metrics and one job page
+      description: |
+        Exact decoded-once UTF-8 queue identity; slashes, quotes, percent signs and
+        reserved names are retained. A missing broker view does not remove retained
+        job history. The queue is required; M4 bounds/cursor semantics apply.
+      parameters:
+        - $ref: '#/components/parameters/RequiredQueue'
+        - $ref: '#/components/parameters/ObservedState'
+        - $ref: '#/components/parameters/MetricWindow'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses: *DashboardResponses
+  /v1/dashboard/jobs:
+    get: &DashboardJobs
+      summary: Bounded retained jobs across all or one exact queue
+      description: Selected state of the highest observed attempt. Pruning runs are omitted. M4 bounds apply.
+      parameters:
+        - $ref: '#/components/parameters/JobQueue'
+        - $ref: '#/components/parameters/ObservedState'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses: *DashboardResponses
+  /v1/dashboard/job:
+    get: &DashboardJob
+      summary: Retained run and separately paginated selected attempt summaries
+      description: |
+        Queue and job_id are exact decoded-once UTF-8 identifiers, each max 256
+        bytes and nonblank. Attempts order numerically; the signed cursor also binds
+        job identity. Run and attempts share a read-only REPEATABLE READ snapshot
+        within this request. Pruning serves no partial attempts. A tombstone or no
+        retained history never establishes absence of the production job. Durations
+        are supplied, retry_exhausted stays null, and M3 evidence/limits remain.
+      parameters:
+        - $ref: '#/components/parameters/RequiredQueue'
+        - name: job_id
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 256 }
+          description: Exact nonblank job ID, max 256 UTF-8 bytes
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses: *DashboardResponses
+  /dashboard/api/overview:
+    get:
+      <<: *DashboardOverview
+      security: [{ dashboardSession: [] }]
+      description: Same overview handler/bounds via an opt-in read-only same-origin browser session. No bearer proxy.
+      responses: &BrowserDashboardResponses
+        <<: *DashboardResponses
+        '401': { description: Missing, revoked or expired dashboard session }
+        '403': { description: Configured host/origin rejected }
+  /dashboard/api/queues:
+    get:
+      <<: *DashboardQueues
+      security: [{ dashboardSession: [] }]
+      responses: *BrowserDashboardResponses
+  /dashboard/api/queue:
+    get:
+      <<: *DashboardQueue
+      security: [{ dashboardSession: [] }]
+      responses: *BrowserDashboardResponses
+  /dashboard/api/jobs:
+    get:
+      <<: *DashboardJobs
+      security: [{ dashboardSession: [] }]
+      responses: *BrowserDashboardResponses
+  /dashboard/api/job:
+    get:
+      <<: *DashboardJob
+      security: [{ dashboardSession: [] }]
+      responses: *BrowserDashboardResponses
+  /dashboard/api/workers:
+    get:
+      summary: M3 worker page through the read-only browser session
+      description: |
+        Same receipt/tick and signed-cursor policy as /v1/workers; additionally
+        rejects unknown/duplicate parameters, caps raw query at 12 KiB and response
+        at 2 MiB. The wire status alive means recent receipt evidence, not proven life.
+      security: [{ dashboardSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+        - name: status
+          in: query
+          schema: { type: string, enum: [all, suspected_down], default: all }
+      responses:
+        '200':
+          description: Bounded receipt evidence
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerPage' }
+        '400': { $ref: '#/components/responses/InvalidPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Configured host/origin rejected }
+        '503': { $ref: '#/components/responses/QueryUnavailable' }
+  /dashboard/session:
+    get:
+      summary: Browser authentication bootstrap and fixed expiry
+      security: []
+      description: |
+        Opt-in dashboard paths return 404 when disabled. Host must match the exact
+        configured origin; supplied Origin/Sec-Fetch-Site must be same-origin.
+        No query parameters. Unauthenticated bootstrap is a 200 with authenticated=false.
+      responses:
+        '200':
+          description: Session bootstrap, Cache-Control no-store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardSession' }
+        '403': { description: Host/origin or session query rejected }
+    post:
+      summary: Authenticate with the separate read-only dashboard password
+      security: []
+      description: |
+        Exact configured Host and Origin required; no CORS. JSON only, 1 KiB body,
+        password 12–256 bytes with constant-time SHA-256 comparison. Never use the
+        shared ingest/admin token. Opaque random 256-bit sessions live four hours;
+        max 256 sessions and 1,024 rate-limit clients, 20 attempts per 10 minutes.
+        Cookies are HttpOnly/SameSite Strict/Path=/, Secure/__Host-queuelens_session
+        for HTTPS, or queuelens_dev_session only with explicit HTTP loopback development.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties:
+                password: { type: string, minLength: 12, maxLength: 256 }
+      responses:
+        '200':
+          description: Session issued with fixed expiry and no-store response
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardSession' }
+        '400': { description: Invalid bounded JSON credentials }
+        '401': { description: Incorrect dashboard password }
+        '403': { description: Configured host/origin rejected }
+        '415': { description: JSON content type required }
+        '429': { description: Bounded client/attempt rate limit reached; Retry-After 600 }
+        '503': { description: Session capacity or entropy unavailable }
+    delete:
+      summary: Revoke browser session and expire its cookie
+      security: [{ dashboardSession: [] }]
+      description: Exact configured host/origin required. Idempotent; restart also invalidates all sessions.
+      responses:
+        '204': { description: Session revoked, cookie expired }
+        '403': { description: Configured host/origin rejected }
   /v1/jobs/failed:
     get:
       summary: Highest-attempt observed failures
@@ -234,6 +417,20 @@ paths:
                 type: string
 components:
   parameters:
+    RequiredQueue:
+      name: queue
+      in: query
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 256 }
+      description: Exact nonblank UTF-8 queue identifier, max 256 bytes
+    ObservedState:
+      name: state
+      in: query
+      schema: { type: string, enum: [all, enqueued, started, completed, failed, retried, stalled], default: all }
+    MetricWindow:
+      name: window
+      in: query
+      schema: { type: string, enum: [1h, 24h, 7d, 30d], default: 1h }
     JobQueue:
       name: queue
       in: query
@@ -271,10 +468,81 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/QueryError' }
   securitySchemes:
+    dashboardSession:
+      type: apiKey
+      in: cookie
+      name: __Host-queuelens_session
+      description: Separate read-only browser session; explicit HTTP loopback development uses queuelens_dev_session.
     bearerAuth:
       type: http
       scheme: bearer
   schemas:
+    DashboardSession:
+      type: object
+      required: [authenticated, expires_at]
+      properties:
+        authenticated: { type: boolean }
+        expires_at: { type: [string, 'null'], format: date-time }
+    SelectedMetrics:
+      type: object
+      required: [available, window, from, until, source, completed, failed, conflicting, completions_per_second, failure_fraction, limitations]
+      description: |
+        Indexed selected-summary cache only; excludes pruning runs. Completion
+        throughput is completed attempts / window seconds; failure fraction is
+        failed / (failed+completed), null for an empty denominator. Superseded
+        retry failures are not all failure events. Work caps at 500,000 terminal
+        rows plus one sentinel and 150ms. Missing cache, deadline, overflow or
+        window beyond configured receipt-history coverage gives unavailable/null.
+        Retention, late facts, telemetry loss, contradictions and supplied clock
+        disagreement limit interpretation. M5 hourly rollups/percentiles are absent.
+      properties:
+        available: { type: boolean }
+        reason: { type: string, enum: [aggregation_unavailable, outside_history_coverage, missing_selected_cache, terminal_work_limit] }
+        window: { type: string, enum: [1h, 24h, 7d, 30d] }
+        from: { type: string, format: date-time }
+        until: { type: string, format: date-time }
+        source: { type: string, const: retained_selected_attempt_outcomes }
+        completed: { type: [integer, 'null'], minimum: 0, maximum: 500000 }
+        failed: { type: [integer, 'null'], minimum: 0, maximum: 500000 }
+        conflicting: { type: [integer, 'null'], minimum: 0, maximum: 500000 }
+        completions_per_second: { type: [number, 'null'], minimum: 0 }
+        failure_fraction: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        limitations: { type: array, items: { type: string } }
+    DashboardQueuePage:
+      type: object
+      required: [items, adapter_errors, source]
+      properties:
+        items: { type: array, maxItems: 200, items: { $ref: '#/components/schemas/Queue' } }
+        next_cursor: { type: string, maxLength: 4096 }
+        adapter_errors: { type: object, maxProperties: 64, additionalProperties: { type: string } }
+        source: { type: string, const: last_broker_poll }
+    DashboardJobPage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 200, items: { $ref: '#/components/schemas/JobItem' } }
+        next_cursor: { type: string, maxLength: 4096 }
+    DashboardJobDetail:
+      type: object
+      required: [queue, job_id, availability, summary, attempts, pruned_at]
+      properties:
+        queue: { type: string }
+        job_id: { type: string }
+        availability: { type: string, enum: [observed, pruning, pruned, not_observed] }
+        summary: { anyOf: [{ $ref: '#/components/schemas/JobItem' }, { type: 'null' }] }
+        attempts: { type: array, maxItems: 200, items: { $ref: '#/components/schemas/JobItem' } }
+        next_cursor: { type: string, maxLength: 4096 }
+        pruned_at: { type: [string, 'null'], format: date-time }
+    DashboardResponse:
+      allOf:
+        - $ref: '#/components/schemas/PageEvidence'
+        - type: object
+          properties:
+            queues: { $ref: '#/components/schemas/DashboardQueuePage' }
+            broker: { $ref: '#/components/schemas/Queue' }
+            metrics: { $ref: '#/components/schemas/SelectedMetrics' }
+            jobs: { $ref: '#/components/schemas/DashboardJobPage' }
+            job: { $ref: '#/components/schemas/DashboardJobDetail' }
     QueryError:
       type: object
       required: [error]
