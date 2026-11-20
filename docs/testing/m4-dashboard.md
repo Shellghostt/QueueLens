@@ -3,6 +3,8 @@
 Status: **Implemented and locally verified on `feat/m4-implementation`; unpushed,
 unmerged, CI pending.** Decisions were accepted in
 [ADR 0011](../adr/0011-m4-query-and-dashboard-contract.md) at `60ec7b1` before code.
+Implemented runtime/test/frontend source is committed at `6339601`; the record below
+describes checks of that source tree. Later status-only documentation does not change it.
 The [phase requirements](../phases/M4.md) retain the M3 protocol/folding/retention
 contracts and the <300 ms query gate.
 
